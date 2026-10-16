@@ -184,6 +184,16 @@ window.SettingsUI = {
                 <input type="number" name="table_count" value="${s.table_count || '20'}" min="1" max="200">
               </div>
               <div class="form-group">
+                <label>Theme Mode</label>
+                <select name="theme" id="settings-theme-select">
+                  <option value="dark" ${window.App?.currentTheme === 'dark' || (!s.theme && window.App?.currentTheme !== 'light') ? 'selected' : ''}>🌙 Dark Mode (Default)</option>
+                  <option value="light" ${window.App?.currentTheme === 'light' || s.theme === 'light' ? 'selected' : ''}>☀️ Light Mode</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group">
                 <label>Kitchen Order Ticket (KOT)</label>
                 <select name="enable_kot">
                   <option value="1" ${s.enable_kot === '1' ? 'selected' : ''}>Enabled</option>
@@ -199,6 +209,11 @@ window.SettingsUI = {
         </form>
       </div>
     `;
+
+    const themeSelect = document.getElementById('settings-theme-select');
+    themeSelect?.addEventListener('change', (e) => {
+      window.App.setTheme(e.target.value, false);
+    });
 
     document.getElementById('settings-billing-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -535,6 +550,9 @@ window.SettingsUI = {
 
   async saveBulk(settingsObj) {
     try {
+      if (settingsObj.theme) {
+        window.App.setTheme(settingsObj.theme, false);
+      }
       const res = await window.api.settings.updateBulk(settingsObj);
       if (res.success && res.data) {
         this.settings = res.data;

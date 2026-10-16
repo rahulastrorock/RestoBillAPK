@@ -7,11 +7,16 @@ window.App = {
   currentUser: null,
   settings: {},
   activePage: 'pos',
+  currentTheme: 'dark',
 
   async init() {
     this.setupEventListeners();
     this.startClock();
     await this.loadSettings();
+
+    // Initialize Theme
+    const savedTheme = localStorage.getItem('restobill_theme') || this.settings.theme || 'dark';
+    this.setTheme(savedTheme, false);
 
     // Check saved session
     const savedUser = sessionStorage.getItem('restobill_user');
@@ -120,8 +125,52 @@ window.App = {
       closeDetailBtn.addEventListener('click', () => this.closeDetailPanel());
     }
 
+    // Theme toggle button
+    const themeBtn = document.getElementById('btn-theme-toggle');
+    if (themeBtn) {
+      themeBtn.addEventListener('click', () => {
+        const next = this.currentTheme === 'dark' ? 'light' : 'dark';
+        this.setTheme(next, true);
+      });
+    }
+
     // Global keyboard shortcuts
     window.addEventListener('keydown', (e) => this.handleHotkeys(e));
+  },
+
+  setTheme(theme, showFeedback = false) {
+    this.currentTheme = theme === 'light' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', this.currentTheme);
+    localStorage.setItem('restobill_theme', this.currentTheme);
+
+    const sunIcon = document.getElementById('theme-icon-sun');
+    const moonIcon = document.getElementById('theme-icon-moon');
+    const toggleBtn = document.getElementById('btn-theme-toggle');
+
+    if (this.currentTheme === 'light') {
+      sunIcon?.classList.add('hidden');
+      moonIcon?.classList.remove('hidden');
+      if (toggleBtn) toggleBtn.title = 'Switch to Dark Theme';
+    } else {
+      sunIcon?.classList.remove('hidden');
+      moonIcon?.classList.add('hidden');
+      if (toggleBtn) toggleBtn.title = 'Switch to Light Theme';
+    }
+
+    // Sync settings dropdown if it exists on the page
+    const themeSelect = document.getElementById('settings-theme-select');
+    if (themeSelect && themeSelect.value !== this.currentTheme) {
+      themeSelect.value = this.currentTheme;
+    }
+
+    // Persist to backend settings
+    if (window.api?.settings?.update) {
+      window.api.settings.update('theme', this.currentTheme).catch(() => {});
+    }
+
+    if (showFeedback) {
+      this.showToast(`Switched to ${this.currentTheme === 'light' ? 'Light' : 'Dark'} theme`, 'info', 1500);
+    }
   },
 
   handleHotkeys(e) {

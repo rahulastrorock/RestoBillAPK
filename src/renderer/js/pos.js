@@ -205,10 +205,14 @@ window.POS = {
 
     grid.innerHTML = filtered.map(item => `
       <div class="pos-item-card" data-item-id="${item.id}">
-        <span class="item-veg-badge ${item.is_veg ? 'veg' : 'non-veg'}" title="${item.is_veg ? 'Vegetarian' : 'Non-Vegetarian'}"></span>
+        <div class="item-card-top">
+          <span class="item-veg-badge ${item.is_veg ? 'veg' : 'non-veg'}" title="${item.is_veg ? 'Vegetarian' : 'Non-Vegetarian'}"></span>
+          ${item.short_code ? `<span class="item-code">#${item.short_code}</span>` : ''}
+        </div>
         <div class="item-name">${item.name}</div>
-        <div class="item-price">${window.App.formatCurrency(item.price)}</div>
-        ${item.short_code ? `<div class="item-code">#${item.short_code}</div>` : ''}
+        <div class="item-card-bottom">
+          <div class="item-price">${window.App.formatCurrency(item.price)}</div>
+        </div>
       </div>
     `).join('');
 

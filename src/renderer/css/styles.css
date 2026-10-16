@@ -67,6 +67,52 @@
   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+/* ─── Light Theme Variables ─────────────────────────────────────── */
+[data-theme="light"] {
+  /* Background layers */
+  --bg-primary: #f1f5f9;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #f1f5f9;
+  --bg-surface-active: #e2e8f0;
+  --bg-elevated: #ffffff;
+
+  /* Accent Colors */
+  --accent-primary: #ea580c;
+  --accent-primary-hover: #c2410c;
+  --accent-primary-glow: rgba(234, 88, 12, 0.15);
+  --accent-secondary: #2563eb;
+  --accent-secondary-hover: #1d4ed8;
+
+  /* Semantic Colors */
+  --color-success: #16a34a;
+  --color-success-bg: rgba(22, 163, 74, 0.12);
+  --color-warning: #d97706;
+  --color-warning-bg: rgba(217, 119, 6, 0.12);
+  --color-danger: #dc2626;
+  --color-danger-bg: rgba(220, 38, 38, 0.12);
+  --color-info: #0891b2;
+  --color-info-bg: rgba(8, 145, 178, 0.12);
+
+  /* Text */
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
+  --text-muted: #64748b;
+  --text-inverse: #f8fafc;
+
+  /* Borders */
+  --border-color: #e2e8f0;
+  --border-color-hover: #cbd5e1;
+  --border-color-focus: var(--accent-primary);
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 30px rgba(0, 0, 0, 0.12);
+  --shadow-glow: 0 0 20px var(--accent-primary-glow);
+}
+
 /* ─── Reset & Base ───────────────────────────────────────────────── */
 *, *::before, *::after {
   margin: 0;
@@ -598,6 +644,27 @@ input, select, textarea, button {
   gap: 16px;
 }
 
+#btn-theme-toggle {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+#btn-theme-toggle:hover {
+  background: var(--bg-surface-hover);
+  border-color: var(--border-color-hover);
+  color: var(--accent-primary);
+  transform: scale(1.05);
+}
+
 .topbar-clock {
   font-size: 18px;
   font-weight: 700;
@@ -729,8 +796,8 @@ input, select, textarea, button {
   overflow-y: auto;
   padding: 16px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(155px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
   align-content: start;
 }
 
@@ -738,11 +805,15 @@ input, select, textarea, button {
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
-  padding: 14px;
+  padding: 12px 14px;
   cursor: pointer;
   transition: var(--transition-fast);
   position: relative;
-  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 110px;
+  box-sizing: border-box;
 }
 
 .pos-item-card::before {
@@ -760,7 +831,7 @@ input, select, textarea, button {
 .pos-item-card:hover {
   background: var(--bg-surface-hover);
   border-color: var(--border-color-hover);
-  transform: translateY(-1px);
+  transform: translateY(-2px);
   box-shadow: var(--shadow-md);
 }
 
@@ -769,17 +840,24 @@ input, select, textarea, button {
 }
 
 .pos-item-card:active {
-  transform: scale(0.97);
+  transform: scale(0.98);
+}
+
+.pos-item-card .item-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
 }
 
 .pos-item-card .item-veg-badge {
   display: inline-block;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   border: 1.5px solid;
   border-radius: 3px;
   position: relative;
-  margin-bottom: 4px;
+  flex-shrink: 0;
 }
 
 .pos-item-card .item-veg-badge.veg {
@@ -817,14 +895,19 @@ input, select, textarea, button {
 
 .pos-item-card .item-name {
   font-weight: 600;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-primary);
-  margin-bottom: 6px;
-  line-height: 1.3;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  line-height: 1.35;
+  margin-bottom: 10px;
+  word-break: break-word;
+  flex: 1;
+}
+
+.pos-item-card .item-card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: auto;
 }
 
 .pos-item-card .item-price {
@@ -835,8 +918,12 @@ input, select, textarea, button {
 
 .pos-item-card .item-code {
   font-size: 10px;
+  font-weight: 600;
   color: var(--text-muted);
-  margin-top: 2px;
+  background: var(--bg-surface-active);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.03em;
 }
 
 /* ─── Order Panel ────────────────────────────────────────────────── */
