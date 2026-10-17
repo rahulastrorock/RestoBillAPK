@@ -63,6 +63,10 @@ window.UsersUI = {
       const isActive = user.active === 1 || user.active === true;
       const initial = (user.name || user.username || 'U')[0].toUpperCase();
 
+      const lastLoginText = user.last_login
+        ? window.App.formatDateTime(user.last_login)
+        : 'Never logged in';
+
       return `
         <div class="user-card ${isActive ? '' : 'inactive'}" data-id="${user.id}">
           <div class="user-card-header">
@@ -95,6 +99,12 @@ window.UsersUI = {
                 </button>
               ` : ''}
             </div>
+          </div>
+          <div class="user-card-meta">
+            <span class="user-last-login">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+              Last Login: <strong>${lastLoginText}</strong>
+            </span>
           </div>
         </div>
       `;

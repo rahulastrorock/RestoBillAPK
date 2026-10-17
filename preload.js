@@ -65,6 +65,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('customers:add', data),
     update: (id, data) =>
       ipcRenderer.invoke('customers:update', id, data),
+    delete: (id) =>
+      ipcRenderer.invoke('customers:delete', id),
   },
 
   // ── Users ─────────────────────────────────────────────────────
@@ -121,6 +123,18 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('settings:updateBulk', settings),
   },
 
+  // ── Draft Bills (Multi-table intermediate billing) ───────────
+  drafts: {
+    getAll: () =>
+      ipcRenderer.invoke('drafts:getAll'),
+    save: (draft) =>
+      ipcRenderer.invoke('drafts:save', draft),
+    delete: (id) =>
+      ipcRenderer.invoke('drafts:delete', id),
+    clear: () =>
+      ipcRenderer.invoke('drafts:clear'),
+  },
+
   // ── Printing ──────────────────────────────────────────────────
   print: {
     receipt: (orderData, settings) =>
@@ -129,6 +143,8 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('print:invoice', orderData, settings),
     getPreview: (orderData, settings, type) =>
       ipcRenderer.invoke('print:getPreview', orderData, settings, type),
+    toPdf: (orderData, settings, type) =>
+      ipcRenderer.invoke('print:toPdf', orderData, settings, type),
   },
 
   // ── Google Drive ──────────────────────────────────────────────
@@ -147,6 +163,13 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('gdrive:getStatus'),
     disconnect: () =>
       ipcRenderer.invoke('gdrive:disconnect'),
+    updateSchedule: () =>
+      ipcRenderer.invoke('gdrive:updateSchedule'),
+    onBackupCompleted: (callback) => {
+      const handler = (event, data) => callback(data);
+      ipcRenderer.on('backup:completed', handler);
+      return () => ipcRenderer.removeListener('backup:completed', handler);
+    },
   },
 
   // ── Audit Log ─────────────────────────────────────────────────
@@ -167,5 +190,18 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('app:openExternal', url),
     exportData: (type, data) =>
       ipcRenderer.invoke('app:exportData', type, data),
+    zoomIn: () =>
+      ipcRenderer.invoke('app:zoomIn'),
+    zoomOut: () =>
+      ipcRenderer.invoke('app:zoomOut'),
+    zoomReset: () =>
+      ipcRenderer.invoke('app:zoomReset'),
+    getZoom: () =>
+      ipcRenderer.invoke('app:getZoom'),
+    onZoomChanged: (callback) => {
+      const handler = (event, percent) => callback(percent);
+      ipcRenderer.on('app:zoomChanged', handler);
+      return () => ipcRenderer.removeListener('app:zoomChanged', handler);
+    },
   },
 });

@@ -172,6 +172,32 @@ function seedData() {
     console.log('Sample menu items seeded.');
   }
 
+  // ─── Seed Sample Customers ────────────────────────────────────
+  const customerCount = db.prepare('SELECT COUNT(*) as count FROM customers').get();
+  if (customerCount.count === 0) {
+    const sampleCustomers = [
+      ['Rahul Sharma', '9876543210', 'rahul.sharma@gmail.com', '07AAAAA0000A1Z5', 'Connaught Place, New Delhi'],
+      ['Priya Patel', '9811223344', 'priya.patel@gmail.com', '', 'Andheri West, Mumbai'],
+      ['Amit Kumar', '9822334455', 'amit.k@outlook.com', '27BBBBB1111B2Z6', 'Kothrud, Pune'],
+      ['Sneha Reddy', '9833445566', '', '', 'Banjara Hills, Hyderabad'],
+      ['Vikram Singh', '9844556677', 'vikram@company.com', '29CCCCC2222C3Z7', 'Indiranagar, Bengaluru']
+    ];
+
+    const insertCust = db.prepare(`
+      INSERT INTO customers (name, phone, email, gstin, address)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    const insertCustomers = db.transaction((customers) => {
+      for (const [name, phone, email, gstin, address] of customers) {
+        insertCust.run(name, phone, email, gstin, address);
+      }
+    });
+    insertCustomers(sampleCustomers);
+
+    console.log('Sample customers seeded.');
+  }
+
   console.log('Database seeding complete.');
 }
 

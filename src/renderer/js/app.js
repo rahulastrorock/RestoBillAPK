@@ -136,6 +136,14 @@ window.App = {
 
     // Global keyboard shortcuts
     window.addEventListener('keydown', (e) => this.handleHotkeys(e));
+
+    // Listen for zoom changes
+    if (window.api?.app?.onZoomChanged) {
+      window.api.app.onZoomChanged((percent) => {
+        const hint = percent === 100 ? 'Default 100%' : 'Ctrl+0 to reset';
+        this.showToast(`🔍 Zoom: ${percent}% (${hint})`, 'info', 1000);
+      });
+    }
   },
 
   setTheme(theme, showFeedback = false) {
@@ -174,6 +182,23 @@ window.App = {
   },
 
   handleHotkeys(e) {
+    // Zoom shortcuts fallback: Ctrl + Plus, Ctrl + Minus, Ctrl + 0
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === '=' || e.key === '+' || e.code === 'Equal' || e.code === 'NumpadAdd') {
+        e.preventDefault();
+        window.api?.app?.zoomIn?.();
+        return;
+      } else if (e.key === '-' || e.key === '_' || e.code === 'Minus' || e.code === 'NumpadSubtract') {
+        e.preventDefault();
+        window.api?.app?.zoomOut?.();
+        return;
+      } else if (e.key === '0' || e.code === 'Digit0' || e.code === 'Numpad0') {
+        e.preventDefault();
+        window.api?.app?.zoomReset?.();
+        return;
+      }
+    }
+
     // Ignore hotkeys inside text inputs except function keys
     const isInput = ['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName);
 
@@ -269,6 +294,19 @@ window.App = {
     }
   },
 
+  canAccessPage(pageId) {
+    const role = (this.currentUser?.role || 'cashier').toLowerCase();
+    if (role === 'admin') return true;
+    if (role === 'manager') {
+      return ['pos', 'dashboard', 'orders', 'customers', 'menu', 'reports', 'settings'].includes(pageId);
+    }
+    // Cashier role has access ONLY to Billing (POS), Orders, and Customers
+    if (role === 'cashier') {
+      return ['pos', 'orders', 'customers'].includes(pageId);
+    }
+    return false;
+  },
+
   setUserSession(user) {
     this.currentUser = user;
 
@@ -278,19 +316,37 @@ window.App = {
     const avatarEl = document.getElementById('user-avatar');
 
     if (nameEl) nameEl.textContent = user.name;
-    if (roleEl) roleEl.textContent = user.role.toUpperCase();
+    if (roleEl) roleEl.textContent = (user.role || 'cashier').toUpperCase();
     if (avatarEl) avatarEl.textContent = (user.name || user.username || 'U')[0].toUpperCase();
 
-    // Show/hide admin section
-    const isAdmin = user.role === 'admin';
+    // Role-based navigation visibility
+    const role = (user.role || 'cashier').toLowerCase();
+    const isCashier = role === 'cashier';
+    const isAdmin = role === 'admin';
 
+    const navDashboard = document.getElementById('nav-dashboard');
+    const navMenu = document.getElementById('nav-menu');
+    const navReports = document.getElementById('nav-reports');
+    const navSettings = document.getElementById('nav-settings');
+    const navUsers = document.getElementById('nav-users');
     const adminDivider = document.getElementById('admin-divider');
     const adminLabel = document.getElementById('admin-label');
-    const navUsers = document.getElementById('nav-users');
 
+    // Cashier only has access to: Billing (POS), Orders, Customers
+    if (navDashboard) navDashboard.style.display = isCashier ? 'none' : 'flex';
+    if (navMenu) navMenu.style.display = isCashier ? 'none' : 'flex';
+    if (navReports) navReports.style.display = isCashier ? 'none' : 'flex';
+    if (navSettings) navSettings.style.display = isCashier ? 'none' : 'flex';
+
+    // Users & Admin section: Admin only
     if (adminDivider) adminDivider.style.display = isAdmin ? 'block' : 'none';
     if (adminLabel) adminLabel.style.display = isAdmin ? 'block' : 'none';
     if (navUsers) navUsers.style.display = isAdmin ? 'flex' : 'none';
+
+    // Redirect to POS if current page is not permitted
+    if (!this.canAccessPage(this.activePage)) {
+      this.navigate('pos');
+    }
   },
 
   handleLogout() {
@@ -336,6 +392,14 @@ window.App = {
   },
 
   navigate(pageId) {
+    if (!this.canAccessPage(pageId)) {
+      this.showToast('Access denied: You do not have permission to view this section', 'warning');
+      if (this.canAccessPage(this.activePage)) {
+        return;
+      }
+      pageId = 'pos';
+    }
+
     this.activePage = pageId;
 
     // Update sidebar navigation active links
@@ -352,6 +416,7 @@ window.App = {
       pos: 'Billing (POS)',
       dashboard: 'Analytics Dashboard',
       orders: 'Order History',
+      customers: 'Customer Directory',
       menu: 'Menu Management',
       reports: 'Business Reports',
       users: 'User Management',
@@ -379,6 +444,8 @@ window.App = {
       window.Dashboard.load();
     } else if (pageId === 'orders' && window.OrdersUI?.load) {
       window.OrdersUI.load();
+    } else if (pageId === 'customers' && window.CustomersUI?.load) {
+      window.CustomersUI.load();
     } else if (pageId === 'menu' && window.MenuUI?.load) {
       window.MenuUI.load();
     } else if (pageId === 'reports' && window.ReportsUI?.load) {
@@ -500,14 +567,185 @@ window.App = {
   formatDate(dateStr) {
     if (!dateStr) return '-';
     const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return String(dateStr);
     return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   },
 
   formatDateTime(dateStr) {
     if (!dateStr) return '-';
     const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return String(dateStr);
     return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) +
       ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+  },
+
+  escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  },
+
+  // ─── Print Preview Modal ─────────────────────────────────────────
+  async showPrintPreview(orderData, settings = null, initialType = 'receipt') {
+    const currentSettings = settings || this.settings || {};
+    let activeType = initialType; // 'receipt' or 'invoice'
+
+    // Create or get preview modal overlay
+    let previewOverlay = document.getElementById('preview-modal-overlay');
+    if (!previewOverlay) {
+      previewOverlay = document.createElement('div');
+      previewOverlay.id = 'preview-modal-overlay';
+      previewOverlay.className = 'modal-overlay hidden';
+      document.body.appendChild(previewOverlay);
+    }
+
+    const orderNo = orderData.order_no || 'Preview';
+    const totalFormatted = this.formatCurrency(orderData.total || 0);
+
+    previewOverlay.innerHTML = `
+      <div class="modal modal-preview" id="preview-modal">
+        <div class="preview-modal-bar">
+          <div class="preview-title-box">
+            <h3>Print Preview: ${orderNo}</h3>
+            <p>${orderData.customer_name ? `Customer: ${this.escapeHtml(orderData.customer_name)} • ` : ''}${totalFormatted} • ${(orderData.payment_mode || 'cash').toUpperCase()}</p>
+          </div>
+
+          <div class="preview-segmented-toggle">
+            <button type="button" class="preview-tab-btn ${activeType === 'receipt' ? 'active' : ''}" id="btn-preview-thermal">
+              🧾 Thermal Receipt (80mm)
+            </button>
+            <button type="button" class="preview-tab-btn ${activeType === 'invoice' ? 'active' : ''}" id="btn-preview-invoice">
+              📄 A4 Tax Invoice
+            </button>
+          </div>
+
+          <div class="preview-toolbar-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-preview-print">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd"/></svg>
+              Print Now
+            </button>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-preview-pdf">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+              Save PDF
+            </button>
+            <button type="button" class="btn-icon" id="btn-preview-close" title="Close Preview">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="preview-viewport" id="preview-viewport">
+          <div class="preview-sheet-frame ${activeType === 'receipt' ? 'thermal' : 'invoice'}" id="preview-sheet-frame">
+            <iframe class="preview-frame-iframe" id="preview-frame" sandbox="allow-same-origin allow-scripts"></iframe>
+          </div>
+        </div>
+      </div>
+    `;
+
+    previewOverlay.classList.remove('hidden');
+
+    const renderContent = async () => {
+      try {
+        const res = await window.api.print.getPreview(orderData, currentSettings, activeType);
+        const previewHtml = (res && typeof res === 'object' && res.data) ? res.data : (typeof res === 'string' ? res : '');
+        const iframe = document.getElementById('preview-frame');
+        const frameBox = document.getElementById('preview-sheet-frame');
+        if (frameBox) {
+          frameBox.className = `preview-sheet-frame ${activeType === 'receipt' ? 'thermal' : 'invoice'}`;
+        }
+        if (iframe) {
+          iframe.srcdoc = previewHtml;
+          iframe.onload = () => {
+            try {
+              const body = iframe.contentWindow.document.body;
+              const html = iframe.contentWindow.document.documentElement;
+              const height = Math.max(body.scrollHeight, body.offsetHeight, html.clientHeight, html.scrollHeight, html.offsetHeight);
+              iframe.style.height = `${Math.max(height + 40, 520)}px`;
+            } catch (e) {}
+          };
+        }
+      } catch (err) {
+        console.error('Failed to get preview:', err);
+      }
+    };
+
+    await renderContent();
+
+    // Setup Preview Listeners
+    const btnThermal = document.getElementById('btn-preview-thermal');
+    const btnInvoice = document.getElementById('btn-preview-invoice');
+    const btnPrint = document.getElementById('btn-preview-print');
+    const btnPdf = document.getElementById('btn-preview-pdf');
+    const btnClose = document.getElementById('btn-preview-close');
+
+    if (btnThermal) {
+      btnThermal.onclick = async () => {
+        activeType = 'receipt';
+        btnThermal.classList.add('active');
+        btnInvoice?.classList.remove('active');
+        await renderContent();
+      };
+    }
+
+    if (btnInvoice) {
+      btnInvoice.onclick = async () => {
+        activeType = 'invoice';
+        btnInvoice.classList.add('active');
+        btnThermal?.classList.remove('active');
+        await renderContent();
+      };
+    }
+
+    if (btnPrint) {
+      btnPrint.onclick = async () => {
+        try {
+          let res;
+          if (activeType === 'invoice') {
+            res = await window.api.print.invoice(orderData, currentSettings);
+          } else {
+            res = await window.api.print.receipt(orderData, currentSettings);
+          }
+          if (res && res.success) {
+            this.showToast(activeType === 'invoice' ? 'Tax invoice sent to printer' : 'Receipt sent to printer', 'success');
+          } else if (res && !res.success) {
+            this.showToast('Print failed: ' + (res.error || 'Unknown error'), 'error');
+          } else {
+            this.showToast('Print requested', 'success');
+          }
+        } catch (e) {
+          this.showToast('Print failed: ' + e.message, 'error');
+        }
+      };
+    }
+
+    if (btnPdf) {
+      btnPdf.onclick = async () => {
+        try {
+          this.showToast('Generating PDF...', 'info');
+          const res = await window.api.print.toPdf(orderData, currentSettings, activeType);
+          if (res && res.success && res.data) {
+            this.showToast('PDF saved successfully!', 'success');
+          } else if (res && !res.success) {
+            this.showToast('PDF generation failed: ' + res.error, 'error');
+          }
+        } catch (e) {
+          this.showToast('PDF generation failed: ' + e.message, 'error');
+        }
+      };
+    }
+
+    const closePreview = () => {
+      previewOverlay.classList.add('hidden');
+    };
+
+    if (btnClose) btnClose.onclick = closePreview;
+    previewOverlay.onclick = (e) => {
+      if (e.target === previewOverlay) closePreview();
+    };
   }
 };
 

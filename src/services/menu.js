@@ -143,7 +143,7 @@ class MenuService {
 
     if (updates.length === 0) return true;
 
-    updates.push('updated_at = datetime("now", "localtime")');
+    updates.push("updated_at = datetime('now', 'localtime')");
     values.push(id);
 
     this.db.prepare(`UPDATE menu_items SET ${updates.join(', ')} WHERE id = ?`).run(...values);
@@ -157,7 +157,7 @@ class MenuService {
 
   deleteItem(id) {
     // Soft delete
-    this.db.prepare('UPDATE menu_items SET active = 0, updated_at = datetime("now", "localtime") WHERE id = ?').run(id);
+    this.db.prepare("UPDATE menu_items SET active = 0, updated_at = datetime('now', 'localtime') WHERE id = ?").run(id);
     return true;
   }
 

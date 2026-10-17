@@ -7,10 +7,16 @@ window.MenuUI = {
   activeTab: 'items',
   items: [],
   categories: [],
+  searchQuery: '',
+  filterCategory: 'all',
+  filterType: 'all',
+  sortColumn: 'name',
+  sortDirection: 'asc',
 
   async load() {
     this.setupEventListeners();
     await this.refreshData();
+    this.populateCategoryFilter();
     this.render();
   },
 
@@ -33,6 +39,74 @@ window.MenuUI = {
     if (btnAddCat) {
       btnAddCat.onclick = () => this.openAddCategoryModal();
     }
+
+    // Search input
+    const searchInput = document.getElementById('menu-items-search');
+    if (searchInput) {
+      searchInput.oninput = (e) => {
+        this.searchQuery = e.target.value.toLowerCase().trim();
+        this.renderItemsTable();
+      };
+    }
+
+    // Category filter
+    const catFilter = document.getElementById('menu-filter-category');
+    if (catFilter) {
+      catFilter.onchange = (e) => {
+        this.filterCategory = e.target.value;
+        this.renderItemsTable();
+      };
+    }
+
+    // Veg / Non-Veg type filter
+    const typeFilter = document.getElementById('menu-filter-type');
+    if (typeFilter) {
+      typeFilter.onchange = (e) => {
+        this.filterType = e.target.value;
+        this.renderItemsTable();
+      };
+    }
+
+    // Reset filters button
+    const btnReset = document.getElementById('btn-reset-menu-filters');
+    if (btnReset) {
+      btnReset.onclick = () => {
+        this.searchQuery = '';
+        this.filterCategory = 'all';
+        this.filterType = 'all';
+        if (searchInput) searchInput.value = '';
+        if (catFilter) catFilter.value = 'all';
+        if (typeFilter) typeFilter.value = 'all';
+        this.renderItemsTable();
+      };
+    }
+
+    // Column sorting listeners
+    document.querySelectorAll('#menu-items-table th.sortable').forEach(th => {
+      th.onclick = () => {
+        const col = th.getAttribute('data-sort');
+        if (this.sortColumn === col) {
+          this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+          this.sortColumn = col;
+          this.sortDirection = 'asc';
+        }
+        this.renderItemsTable();
+      };
+    });
+  },
+
+  populateCategoryFilter() {
+    const catFilter = document.getElementById('menu-filter-category');
+    if (!catFilter) return;
+
+    const currentVal = catFilter.value;
+    catFilter.innerHTML = `<option value="all">All Categories</option>` +
+      this.categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+    if (currentVal && [...catFilter.options].some(o => o.value === currentVal)) {
+      catFilter.value = currentVal;
+    }
   },
 
   async refreshData() {
@@ -44,6 +118,7 @@ window.MenuUI = {
 
       if (catsRes.success && catsRes.data) {
         this.categories = catsRes.data;
+        this.populateCategoryFilter();
       }
       if (itemsRes.success && itemsRes.data) {
         this.items = itemsRes.data;
@@ -95,40 +170,125 @@ window.MenuUI = {
     const tbody = document.getElementById('menu-items-tbody');
     if (!tbody) return;
 
-    if (this.items.length === 0) {
+    const countEl = document.getElementById('menu-items-count');
+    const categoryMap = {};
+    for (const cat of this.categories) {
+      categoryMap[cat.id] = cat.name;
+    }
+
+    // Filter items
+    let filtered = [...this.items];
+
+    if (this.searchQuery) {
+      filtered = filtered.filter(item => {
+        const name = (item.name || '').toLowerCase();
+        const code = (item.short_code || '').toLowerCase();
+        const hsn = (item.hsn_sac || '').toLowerCase();
+        const catName = (categoryMap[item.category_id] || '').toLowerCase();
+        return name.includes(this.searchQuery) ||
+               code.includes(this.searchQuery) ||
+               hsn.includes(this.searchQuery) ||
+               catName.includes(this.searchQuery);
+      });
+    }
+
+    if (this.filterCategory !== 'all') {
+      filtered = filtered.filter(item => String(item.category_id) === String(this.filterCategory));
+    }
+
+    if (this.filterType === 'veg') {
+      filtered = filtered.filter(item => item.is_veg === 1 || item.is_veg === true);
+    } else if (this.filterType === 'non-veg') {
+      filtered = filtered.filter(item => item.is_veg === 0 || item.is_veg === false);
+    }
+
+    // Sort items
+    const col = this.sortColumn;
+    const dir = this.sortDirection === 'asc' ? 1 : -1;
+
+    filtered.sort((a, b) => {
+      let valA, valB;
+      if (col === 'name') {
+        valA = (a.name || '').toLowerCase();
+        valB = (b.name || '').toLowerCase();
+        return valA.localeCompare(valB) * dir;
+      } else if (col === 'code') {
+        valA = (a.short_code || '').toLowerCase();
+        valB = (b.short_code || '').toLowerCase();
+        return valA.localeCompare(valB) * dir;
+      } else if (col === 'category') {
+        valA = (categoryMap[a.category_id] || '').toLowerCase();
+        valB = (categoryMap[b.category_id] || '').toLowerCase();
+        return valA.localeCompare(valB) * dir;
+      } else if (col === 'price') {
+        valA = parseFloat(a.price) || 0;
+        valB = parseFloat(b.price) || 0;
+        return (valA - valB) * dir;
+      } else if (col === 'gst_rate') {
+        valA = parseFloat(a.gst_rate) || 0;
+        valB = parseFloat(b.gst_rate) || 0;
+        return (valA - valB) * dir;
+      } else if (col === 'is_veg') {
+        valA = a.is_veg ? 1 : 0;
+        valB = b.is_veg ? 1 : 0;
+        return (valA - valB) * dir;
+      }
+      return 0;
+    });
+
+    // Update header sort indicator
+    document.querySelectorAll('#menu-items-table th.sortable').forEach(th => {
+      const thCol = th.getAttribute('data-sort');
+      const indicator = th.querySelector('.sort-indicator');
+      if (thCol === this.sortColumn) {
+        th.classList.add('sorted');
+        if (indicator) indicator.textContent = this.sortDirection === 'asc' ? '▲' : '▼';
+      } else {
+        th.classList.remove('sorted');
+        if (indicator) indicator.textContent = '↕';
+      }
+    });
+
+    // Update count display
+    if (countEl) {
+      if (filtered.length === this.items.length) {
+        countEl.textContent = `Showing all ${this.items.length} items`;
+      } else {
+        countEl.textContent = `Showing ${filtered.length} of ${this.items.length} items`;
+      }
+    }
+
+    if (filtered.length === 0) {
       tbody.innerHTML = `
         <tr>
           <td colspan="8" class="text-center" style="padding: 40px; color: var(--text-muted);">
-            No menu items found. Click "+ Add Item" to create one.
+            ${this.items.length === 0 ? 'No menu items found. Click "+ Add Item" to create one.' : 'No menu items matched your filter.'}
           </td>
         </tr>
       `;
       return;
     }
 
-    const categoryMap = {};
-    for (const cat of this.categories) {
-      categoryMap[cat.id] = cat.name;
-    }
-
-    tbody.innerHTML = this.items.map(item => `
+    tbody.innerHTML = filtered.map(item => `
       <tr>
-        <td style="font-weight:600; color:var(--text-primary); display:flex; align-items:center; gap:8px;">
-          <span class="item-veg-badge ${item.is_veg ? 'veg' : 'non-veg'}" style="margin:0;"></span>
-          ${item.name}
+        <td style="font-weight:600; color:var(--text-primary); vertical-align:middle;">
+          <div style="display:inline-flex; align-items:center; gap:8px;">
+            <span class="item-veg-badge ${item.is_veg ? 'veg' : 'non-veg'}" style="margin:0; flex-shrink:0;"></span>
+            <span>${item.name}</span>
+          </div>
         </td>
-        <td><code>${item.short_code || '-'}</code></td>
-        <td>${categoryMap[item.category_id] || item.category_name || '-'}</td>
-        <td style="font-weight:600; color:var(--accent-primary);">${window.App.formatCurrency(item.price)}</td>
-        <td>${item.gst_rate}%</td>
-        <td>${item.hsn_sac || '996331'}</td>
-        <td>
+        <td style="vertical-align:middle;"><code>${item.short_code || '-'}</code></td>
+        <td style="vertical-align:middle;">${categoryMap[item.category_id] || item.category_name || '-'}</td>
+        <td style="font-weight:600; color:var(--accent-primary); vertical-align:middle;">${window.App.formatCurrency(item.price)}</td>
+        <td style="vertical-align:middle;">${item.gst_rate}%</td>
+        <td style="vertical-align:middle;">${item.hsn_sac || '996331'}</td>
+        <td style="vertical-align:middle;">
           <span class="badge ${item.is_veg ? 'badge-cashier' : 'badge-voided'}">
             ${item.is_veg ? 'Veg' : 'Non-Veg'}
           </span>
         </td>
-        <td>
-          <div class="action-btns">
+        <td style="vertical-align:middle; text-align:center;">
+          <div class="action-btns" style="justify-content:center;">
             <button class="action-btn action-view btn-edit-item" data-id="${item.id}" title="Edit Item">
               <svg viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
             </button>

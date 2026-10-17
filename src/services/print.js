@@ -9,35 +9,37 @@ class PrintService {
   /**
    * Generate HTML for thermal receipt (58mm/80mm)
    */
-  generateReceiptHtml(order, settings) {
+  generateReceiptHtml(order, settings = {}) {
     const {
       restaurant_name = 'Restaurant',
       restaurant_address = '',
       restaurant_phone = '',
+      restaurant_logo = '',
       gstin = '',
       fssai_no = '',
       footer_text = 'Thank you! Visit again!',
       printer_width = '80',
       currency_symbol = '₹',
-    } = settings;
+    } = settings || {};
 
     const width = printer_width === '58' ? '48mm' : '72mm';
     const fontSize = printer_width === '58' ? '10px' : '12px';
 
     const formatDate = (dateStr) => {
-      const d = new Date(dateStr);
+      const d = new Date(dateStr || Date.now());
       return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' }) +
         ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
     };
 
     const formatCurrency = (amount) => {
-      return `${currency_symbol}${parseFloat(amount).toFixed(2)}`;
+      const val = parseFloat(amount);
+      return `${currency_symbol}${(isNaN(val) ? 0 : val).toFixed(2)}`;
     };
 
     let itemsHtml = '';
     for (const item of (order.items || [])) {
-      const qty = parseFloat(item.quantity);
-      const total = parseFloat(item.total);
+      const qty = parseFloat(item.quantity || 1);
+      const total = parseFloat(item.total || (item.price * qty));
       itemsHtml += `
         <tr>
           <td style="text-align:left; padding:2px 0;">${item.name}</td>
@@ -57,8 +59,10 @@ class PrintService {
       font-family: 'Consolas', 'Courier New', monospace;
       font-size: ${fontSize};
       width: ${width};
-      padding: 4px;
+      margin: 0 auto;
+      padding: 6px 4px;
       color: #000;
+      background: #fff;
     }
     .center { text-align: center; }
     .right { text-align: right; }
@@ -91,6 +95,7 @@ class PrintService {
 <body>
   <!-- Header -->
   <div class="center">
+    ${restaurant_logo ? `<div style="margin-bottom:6px;"><img src="${restaurant_logo}" alt="Logo" style="max-width:${printer_width === '58' ? '90px' : '130px'}; max-height:60px; object-fit:contain; filter:grayscale(100%);"></div>` : ''}
     <div class="restaurant-name">${restaurant_name}</div>
     ${restaurant_address ? `<div>${restaurant_address}</div>` : ''}
     ${restaurant_phone ? `<div>Ph: ${restaurant_phone}</div>` : ''}
@@ -139,22 +144,22 @@ class PrintService {
   <table>
     <tr>
       <td>Subtotal</td>
-      <td class="right">${formatCurrency(order.subtotal)}</td>
+      <td class="right">${formatCurrency(order.subtotal || 0)}</td>
     </tr>
-    ${parseFloat(order.discount_amount) > 0 ? `
+    ${parseFloat(order.discount_amount || 0) > 0 ? `
     <tr>
       <td>Discount ${order.discount_type === 'percent' ? `(${order.discount_value}%)` : ''}</td>
       <td class="right">-${formatCurrency(order.discount_amount)}</td>
     </tr>` : ''}
     <tr>
       <td>CGST</td>
-      <td class="right">${formatCurrency(order.cgst)}</td>
+      <td class="right">${formatCurrency(order.cgst || order.cgst_total || 0)}</td>
     </tr>
     <tr>
       <td>SGST</td>
-      <td class="right">${formatCurrency(order.sgst)}</td>
+      <td class="right">${formatCurrency(order.sgst || order.sgst_total || 0)}</td>
     </tr>
-    ${parseFloat(order.round_off) !== 0 ? `
+    ${parseFloat(order.round_off || 0) !== 0 ? `
     <tr>
       <td>Round Off</td>
       <td class="right">${parseFloat(order.round_off) > 0 ? '+' : ''}${formatCurrency(order.round_off)}</td>
@@ -166,7 +171,7 @@ class PrintService {
   <table>
     <tr class="total-row">
       <td>GRAND TOTAL</td>
-      <td class="right">${formatCurrency(order.total)}</td>
+      <td class="right">${formatCurrency(order.total || 0)}</td>
     </tr>
   </table>
 
@@ -212,46 +217,57 @@ class PrintService {
   /**
    * Generate HTML for A4 Tax Invoice
    */
-  generateInvoiceHtml(order, settings) {
+  generateInvoiceHtml(order, settings = {}) {
     const {
       restaurant_name = 'Restaurant',
       restaurant_address = '',
       restaurant_phone = '',
       restaurant_email = '',
+      restaurant_logo = '',
       gstin = '',
       fssai_no = '',
       state_name = '',
       state_code = '',
       currency_symbol = '₹',
-    } = settings;
+    } = settings || {};
 
     const formatDate = (dateStr) => {
-      const d = new Date(dateStr);
+      const d = new Date(dateStr || Date.now());
       return d.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' });
     };
 
     const formatCurrency = (amount) => {
-      return `${currency_symbol}${parseFloat(amount).toFixed(2)}`;
+      const val = parseFloat(amount);
+      return `${currency_symbol}${(isNaN(val) ? 0 : val).toFixed(2)}`;
     };
 
     let itemsHtml = '';
     let sno = 1;
     for (const item of (order.items || [])) {
+      const qty = parseFloat(item.quantity || 1);
+      const price = parseFloat(item.price || 0);
+      const total = parseFloat(item.total || (price * qty));
+      const rate = parseFloat(item.gst_rate || 5);
+      const taxable = parseFloat(item.taxable_amount || Math.round(((total * 100) / (100 + rate)) * 100) / 100);
+      const cgst = parseFloat(item.cgst || Math.round(((total - taxable) / 2) * 100) / 100);
+      const sgst = parseFloat(item.sgst || Math.round(((total - taxable) / 2) * 100) / 100);
+
       itemsHtml += `
         <tr>
           <td>${sno++}</td>
           <td>${item.name}</td>
-          <td class="center">${item.gst_rate}%</td>
-          <td class="right">${parseFloat(item.quantity)}</td>
-          <td class="right">${formatCurrency(item.price)}</td>
-          <td class="right">${formatCurrency(item.taxable_amount)}</td>
-          <td class="right">${formatCurrency(item.cgst)}</td>
-          <td class="right">${formatCurrency(item.sgst)}</td>
-          <td class="right">${formatCurrency(item.total)}</td>
+          <td class="center">${rate}%</td>
+          <td class="right">${qty}</td>
+          <td class="right">${formatCurrency(price)}</td>
+          <td class="right">${formatCurrency(taxable)}</td>
+          <td class="right">${formatCurrency(cgst)}</td>
+          <td class="right">${formatCurrency(sgst)}</td>
+          <td class="right">${formatCurrency(total)}</td>
         </tr>`;
     }
 
-    const totalInWords = this._numberToWords(Math.round(parseFloat(order.total)));
+    const totalVal = Math.round(parseFloat(order.total || 0));
+    const totalInWords = this._numberToWords(isNaN(totalVal) ? 0 : totalVal);
 
     return `<!DOCTYPE html>
 <html>
@@ -312,18 +328,21 @@ class PrintService {
 <body>
   <div class="invoice-box">
     <!-- Header -->
-    <div class="header">
-      <div class="header-left">
-        <div class="restaurant-name">${restaurant_name}</div>
-        <p>${restaurant_address}</p>
-        ${restaurant_phone ? `<p>Phone: ${restaurant_phone}</p>` : ''}
-        ${restaurant_email ? `<p>Email: ${restaurant_email}</p>` : ''}
-        ${gstin ? `<p><strong>GSTIN:</strong> ${gstin}</p>` : ''}
-        ${fssai_no ? `<p><strong>FSSAI:</strong> ${fssai_no}</p>` : ''}
-        ${state_name ? `<p><strong>State:</strong> ${state_name} (${state_code})</p>` : ''}
+    <div class="header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:20px;">
+      <div style="display:flex; align-items:flex-start; gap:16px;">
+        ${restaurant_logo ? `<img src="${restaurant_logo}" alt="Logo" style="max-height:80px; max-width:140px; object-fit:contain; border-radius:4px;">` : ''}
+        <div class="header-left">
+          <div class="restaurant-name">${restaurant_name}</div>
+          <p>${restaurant_address}</p>
+          ${restaurant_phone ? `<p>Phone: ${restaurant_phone}</p>` : ''}
+          ${restaurant_email ? `<p>Email: ${restaurant_email}</p>` : ''}
+          ${gstin ? `<p><strong>GSTIN:</strong> ${gstin}</p>` : ''}
+          ${fssai_no ? `<p><strong>FSSAI:</strong> ${fssai_no}</p>` : ''}
+          ${state_name ? `<p><strong>State:</strong> ${state_name} (${state_code})</p>` : ''}
+        </div>
       </div>
       <div class="header-right">
-        <div style="font-size:11px; color:#666;">Original/Duplicate</div>
+        <div style="font-size:11px; color:#666;">Original for Recipient</div>
       </div>
     </div>
 
@@ -433,13 +452,26 @@ class PrintService {
   _getGstSummaryRows(items, symbol = '₹') {
     const gstMap = {};
     for (const item of (items || [])) {
-      const rate = parseFloat(item.gst_rate);
+      const parsedRate = parseFloat(item.gst_rate);
+      const rate = !isNaN(parsedRate) ? parsedRate : 5;
       if (!gstMap[rate]) {
         gstMap[rate] = { taxable: 0, cgst: 0, sgst: 0 };
       }
-      gstMap[rate].taxable += parseFloat(item.taxable_amount) || 0;
-      gstMap[rate].cgst += parseFloat(item.cgst) || 0;
-      gstMap[rate].sgst += parseFloat(item.sgst) || 0;
+      const qty = parseFloat(item.quantity || 1);
+      const total = parseFloat(item.total || ((item.price || 0) * qty));
+      const taxable = !isNaN(parseFloat(item.taxable_amount))
+        ? parseFloat(item.taxable_amount)
+        : Math.round(((total * 100) / (100 + rate)) * 100) / 100;
+      const cgst = !isNaN(parseFloat(item.cgst))
+        ? parseFloat(item.cgst)
+        : Math.round(((total - taxable) / 2) * 100) / 100;
+      const sgst = !isNaN(parseFloat(item.sgst))
+        ? parseFloat(item.sgst)
+        : Math.round(((total - taxable) / 2) * 100) / 100;
+
+      gstMap[rate].taxable += taxable;
+      gstMap[rate].cgst += cgst;
+      gstMap[rate].sgst += sgst;
     }
 
     let html = '';

@@ -2,6 +2,17 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+// Disable GPU disk cache to prevent "Gpu Cache Creation failed: -2" and "Unable to move cache: Access is denied (0x5)" on Windows
+app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
+
+// Ensure single instance lock so two instances never conflict over cache or SQLite database
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('RestoBill is already running. Focusing existing instance.');
+  app.quit();
+  process.exit(0);
+}
+
 // Service imports
 const { initDatabase, getDb, closeDatabase } = require('./src/database/db');
 const { runMigrations } = require('./src/database/migrations');
@@ -20,11 +31,16 @@ let printWindow;
 
 // ─── Window Creation ─────────────────────────────────────────────
 function createWindow() {
+  const icoPath = path.join(__dirname, 'src', 'renderer', 'assets', 'icon.ico');
+  const pngPath = path.join(__dirname, 'src', 'renderer', 'assets', 'icon.png');
+  const appIcon = fs.existsSync(icoPath) ? icoPath : pngPath;
+
   mainWindow = new BrowserWindow({
     width: 1366,
     height: 768,
     minWidth: 1024,
     minHeight: 600,
+    icon: appIcon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -37,18 +53,111 @@ function createWindow() {
     autoHideMenuBar: true,
   });
 
+  if (fs.existsSync(appIcon)) {
+    try { mainWindow.setIcon(appIcon); } catch (e) {}
+  }
+
   mainWindow.loadFile('src/renderer/index.html');
+
+  // Handle Zoom shortcuts (Ctrl++, Ctrl+-, Ctrl+0) with full keyboard layout support
+  mainWindow.webContents.on('before-input-event', (event, input) => {
+    if (input.type === 'keyDown' && (input.control || input.meta)) {
+      // Zoom In: Ctrl + Plus, Ctrl + Equal, Ctrl + NumpadAdd
+      if (
+        input.key === '=' ||
+        input.key === '+' ||
+        input.key === 'Add' ||
+        input.code === 'Equal' ||
+        input.code === 'NumpadAdd'
+      ) {
+        event.preventDefault();
+        const currentFactor = mainWindow.webContents.getZoomFactor();
+        const newFactor = Math.min(Math.round((currentFactor + 0.1) * 10) / 10, 2.0);
+        mainWindow.webContents.setZoomFactor(newFactor);
+        mainWindow.webContents.send('app:zoomChanged', Math.round(newFactor * 100));
+      }
+      // Zoom Out: Ctrl + Minus, Ctrl + Underscore, Ctrl + NumpadSubtract
+      else if (
+        input.key === '-' ||
+        input.key === '_' ||
+        input.key === 'Subtract' ||
+        input.code === 'Minus' ||
+        input.code === 'NumpadSubtract'
+      ) {
+        event.preventDefault();
+        const currentFactor = mainWindow.webContents.getZoomFactor();
+        const newFactor = Math.max(Math.round((currentFactor - 0.1) * 10) / 10, 0.5);
+        mainWindow.webContents.setZoomFactor(newFactor);
+        mainWindow.webContents.send('app:zoomChanged', Math.round(newFactor * 100));
+      }
+      // Reset zoom: Ctrl + 0
+      else if (
+        input.key === '0' ||
+        input.code === 'Digit0' ||
+        input.code === 'Numpad0'
+      ) {
+        event.preventDefault();
+        mainWindow.webContents.setZoomFactor(1.0);
+        mainWindow.webContents.send('app:zoomChanged', 100);
+      }
+    }
+
+    // Toggle DevTools with F12 or Ctrl+Shift+I
+    if (input.type === 'keyDown') {
+      if (input.key === 'F12' || (input.control && input.shift && (input.key === 'I' || input.key === 'i'))) {
+        event.preventDefault();
+        mainWindow.webContents.toggleDevTools();
+      }
+    }
+  });
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     mainWindow.maximize();
   });
 
+  let isClosingWithBackup = false;
+  mainWindow.on('close', async (e) => {
+    if (isClosingWithBackup) return;
+
+    try {
+      const backupEnabled = SettingsService.get('backup_enabled');
+      const backupOnExit = SettingsService.get('backup_on_exit');
+
+      if (backupEnabled === '1' && backupOnExit !== '0' && GDriveService.drive) {
+        e.preventDefault();
+        isClosingWithBackup = true;
+        console.log('[AutoBackup] App closing: creating automatic exit backup to Google Drive...');
+
+        const dbPath = path.join(app.getPath('userData'), 'restobill.db');
+        const db = getDb();
+        if (db) db.pragma('wal_checkpoint(TRUNCATE)');
+
+        await Promise.race([
+          GDriveService.backupDatabase(dbPath).then(res => {
+            if (res?.timestamp) SettingsService.update('last_backup', res.timestamp);
+            console.log('[AutoBackup] Exit backup completed successfully.');
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Exit backup timeout')), 8000))
+        ]).catch(err => {
+          console.warn('[AutoBackup] Exit backup skipped or failed:', err.message);
+        });
+
+        mainWindow.destroy();
+        app.quit();
+      }
+    } catch (err) {
+      console.error('[AutoBackup] Exit error:', err.message);
+      mainWindow.destroy();
+      app.quit();
+    }
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 
-  if (process.argv.includes('--dev')) {
+  if (process.argv.includes('--devtools')) {
     mainWindow.webContents.openDevTools();
   }
 }
@@ -79,6 +188,79 @@ function initApp() {
   SettingsService.init();
   PrintService.init();
   GDriveService.init(userDataPath);
+  setupAutoBackupScheduler();
+}
+
+let autoBackupInterval = null;
+
+function setupAutoBackupScheduler() {
+  if (autoBackupInterval) {
+    clearInterval(autoBackupInterval);
+    autoBackupInterval = null;
+  }
+
+  // Check every 3 minutes
+  autoBackupInterval = setInterval(async () => {
+    try {
+      const enabled = SettingsService.get('backup_enabled');
+      if (enabled !== '1') return;
+      if (!GDriveService.drive) return;
+
+      const frequency = SettingsService.get('backup_frequency') || 'daily';
+      const backupTime = SettingsService.get('backup_time') || '23:00';
+      const lastBackupStr = SettingsService.get('last_backup');
+
+      const now = new Date();
+      let shouldBackup = false;
+
+      if (frequency === 'every_4_hours') {
+        if (!lastBackupStr) {
+          shouldBackup = true;
+        } else {
+          const diffHours = (now - new Date(lastBackupStr)) / (1000 * 60 * 60);
+          if (diffHours >= 4) shouldBackup = true;
+        }
+      } else if (frequency === 'every_12_hours') {
+        if (!lastBackupStr) {
+          shouldBackup = true;
+        } else {
+          const diffHours = (now - new Date(lastBackupStr)) / (1000 * 60 * 60);
+          if (diffHours >= 12) shouldBackup = true;
+        }
+      } else {
+        // Daily: check if backed up today
+        const todayStr = now.toLocaleDateString('en-CA');
+        const lastDateStr = lastBackupStr ? new Date(lastBackupStr).toLocaleDateString('en-CA') : '';
+
+        if (todayStr !== lastDateStr) {
+          const [targetHour, targetMinute] = backupTime.split(':').map(Number);
+          const currentHour = now.getHours();
+          const currentMinute = now.getMinutes();
+
+          if (currentHour > targetHour || (currentHour === targetHour && currentMinute >= targetMinute)) {
+            shouldBackup = true;
+          }
+        }
+      }
+
+      if (shouldBackup) {
+        console.log(`[AutoBackup] Running scheduled backup (${frequency})...`);
+        const dbPath = path.join(app.getPath('userData'), 'restobill.db');
+        const db = getDb();
+        if (db) db.pragma('wal_checkpoint(TRUNCATE)');
+        const res = await GDriveService.backupDatabase(dbPath);
+        if (res && res.success) {
+          SettingsService.update('last_backup', res.timestamp);
+          console.log('[AutoBackup] Backup successful:', res.fileName);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('backup:completed', res);
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[AutoBackup] Error running backup:', err.message);
+    }
+  }, 3 * 60 * 1000);
 }
 
 // ─── IPC Handler Wrapper ─────────────────────────────────────────
@@ -190,6 +372,10 @@ function registerIpcHandlers() {
     return BillingService.updateCustomer(id, data);
   });
 
+  handleIpc('customers:delete', (id) => {
+    return BillingService.deleteCustomer(id);
+  });
+
   // ── Users ─────────────────────────────────────────────────────
   handleIpc('users:getAll', () => {
     return UserService.getAll();
@@ -270,6 +456,23 @@ function registerIpcHandlers() {
     return SettingsService.updateBulk(settings);
   });
 
+  // ── Draft Bills ──────────────────────────────────────────────
+  handleIpc('drafts:getAll', () => {
+    return BillingService.getAllDrafts();
+  });
+
+  handleIpc('drafts:save', (draft) => {
+    return BillingService.saveDraft(draft);
+  });
+
+  handleIpc('drafts:delete', (id) => {
+    return BillingService.deleteDraft(id);
+  });
+
+  handleIpc('drafts:clear', () => {
+    return BillingService.clearAllDrafts();
+  });
+
   // ── Printing ──────────────────────────────────────────────────
   handleIpc('print:receipt', async (orderData, settings) => {
     const html = PrintService.generateReceiptHtml(orderData, settings);
@@ -290,6 +493,14 @@ function registerIpcHandlers() {
     return PrintService.generateReceiptHtml(orderData, settings);
   });
 
+  handleIpc('print:toPdf', async (orderData, settings, type) => {
+    const html = type === 'invoice'
+      ? PrintService.generateInvoiceHtml(orderData, settings)
+      : PrintService.generateReceiptHtml(orderData, settings);
+    const filename = `${orderData.order_no || 'Bill'}_${type || 'receipt'}`;
+    return await savePdfFromHtml(html, filename);
+  });
+
   // ── Google Drive ──────────────────────────────────────────────
   handleIpc('gdrive:getAuthUrl', () => {
     return GDriveService.getAuthUrl();
@@ -299,9 +510,19 @@ function registerIpcHandlers() {
     return GDriveService.authenticate(code);
   });
 
-  handleIpc('gdrive:backup', () => {
+  handleIpc('gdrive:backup', async () => {
     const dbPath = path.join(app.getPath('userData'), 'restobill.db');
-    return GDriveService.backupDatabase(dbPath);
+    try {
+      const db = getDb();
+      if (db) db.pragma('wal_checkpoint(TRUNCATE)');
+    } catch (e) {
+      console.warn('Could not checkpoint WAL before backup:', e.message);
+    }
+    const res = await GDriveService.backupDatabase(dbPath);
+    if (res && res.success && res.timestamp) {
+      SettingsService.update('last_backup', res.timestamp);
+    }
+    return res;
   });
 
   handleIpc('gdrive:restore', (fileId) => {
@@ -319,6 +540,11 @@ function registerIpcHandlers() {
 
   handleIpc('gdrive:disconnect', () => {
     return GDriveService.disconnect();
+  });
+
+  handleIpc('gdrive:updateSchedule', () => {
+    setupAutoBackupScheduler();
+    return true;
   });
 
   // ── Audit Log ─────────────────────────────────────────────────
@@ -359,6 +585,41 @@ function registerIpcHandlers() {
       return result.filePath;
     }
     return null;
+  });
+
+  handleIpc('app:zoomIn', () => {
+    if (mainWindow) {
+      const current = mainWindow.webContents.getZoomFactor();
+      const next = Math.min(Math.round((current + 0.1) * 10) / 10, 2.0);
+      mainWindow.webContents.setZoomFactor(next);
+      return Math.round(next * 100);
+    }
+    return 100;
+  });
+
+  handleIpc('app:zoomOut', () => {
+    if (mainWindow) {
+      const current = mainWindow.webContents.getZoomFactor();
+      const next = Math.max(Math.round((current - 0.1) * 10) / 10, 0.5);
+      mainWindow.webContents.setZoomFactor(next);
+      return Math.round(next * 100);
+    }
+    return 100;
+  });
+
+  handleIpc('app:zoomReset', () => {
+    if (mainWindow) {
+      mainWindow.webContents.setZoomFactor(1.0);
+      return 100;
+    }
+    return 100;
+  });
+
+  handleIpc('app:getZoom', () => {
+    if (mainWindow) {
+      return Math.round(mainWindow.webContents.getZoomFactor() * 100);
+    }
+    return 100;
   });
 }
 
@@ -401,8 +662,65 @@ function printHtml(html, type) {
   });
 }
 
+async function savePdfFromHtml(html, defaultName) {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save Invoice as PDF',
+      defaultPath: `${defaultName || 'Invoice'}.pdf`,
+      filters: [{ name: 'PDF Document', extensions: ['pdf'] }]
+    });
+
+    if (result.canceled || !result.filePath) {
+      return null;
+    }
+
+    const pdfWin = new BrowserWindow({
+      show: false,
+      width: 794,
+      height: 1123,
+      webPreferences: {
+        contextIsolation: true,
+      },
+    });
+
+    pdfWin.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+    return new Promise((resolve, reject) => {
+      pdfWin.webContents.on('did-finish-load', async () => {
+        try {
+          const pdfBuffer = await pdfWin.webContents.printToPDF({
+            printBackground: true,
+            margins: { marginType: 'default' },
+            pageSize: 'A4',
+          });
+          fs.writeFileSync(result.filePath, pdfBuffer);
+          pdfWin.close();
+          resolve(result.filePath);
+        } catch (err) {
+          if (pdfWin) pdfWin.close();
+          reject(err);
+        }
+      });
+    });
+  } catch (err) {
+    console.error('Error saving PDF:', err);
+    throw err;
+  }
+}
+
 // ─── App Lifecycle ───────────────────────────────────────────────
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 app.whenReady().then(() => {
+  app.setName('RestoBill');
+  if (process.platform === 'win32') {
+    app.setAppUserModelId('com.restobill.app');
+  }
   initApp();
   registerIpcHandlers();
   createWindow();

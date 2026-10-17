@@ -13,13 +13,20 @@ window.POS = {
   paymentMode: 'cash',
   discount: { type: 'percent', value: 0 },
   customerGstin: '',
+  customers: [],
+  customerId: null,
+  selectedCustomer: null,
+  activeDropdownIndex: -1,
+  filteredCustomers: [],
 
   async init() {
     this.setupEventListeners();
-    await this.loadData();
+    await Promise.all([
+      this.loadData(),
+      this.loadCustomers()
+    ]);
     this.renderCategories();
     this.renderItems();
-    this.renderCart();
   },
 
   setupEventListeners() {
@@ -79,13 +86,7 @@ window.POS = {
             const res = await window.api.customers.search(phone);
             if (res.success && res.data && res.data.length > 0) {
               const cust = res.data[0];
-              const nameInput = document.getElementById('pos-customer-name');
-              if (nameInput && !nameInput.value) {
-                nameInput.value = cust.name;
-              }
-              if (cust.gstin) {
-                this.customerGstin = cust.gstin;
-              }
+              this.selectCustomer(cust);
             }
           } catch (e) {
             console.error('Customer lookup error:', e);
@@ -93,6 +94,9 @@ window.POS = {
         }
       });
     }
+
+    // Customer name autocomplete & dynamic filtering
+    this.setupCustomerAutocomplete();
 
     // Discount button
     const discountBtn = document.getElementById('btn-discount');
@@ -117,6 +121,12 @@ window.POS = {
       });
     }
 
+    // POS Print Preview button
+    const previewBtn = document.getElementById('btn-pos-preview');
+    if (previewBtn) {
+      previewBtn.addEventListener('click', () => this.previewCurrentBill());
+    }
+
     // Save order button
     const saveBtn = document.getElementById('btn-save-order');
     if (saveBtn) {
@@ -127,6 +137,33 @@ window.POS = {
     const savePrintBtn = document.getElementById('btn-save-print');
     if (savePrintBtn) {
       savePrintBtn.addEventListener('click', () => this.handleSaveAndPrint());
+    }
+
+    // Category horizontal slider navigation buttons
+    const catContainer = document.getElementById('pos-categories');
+    const scrollLeftBtn = document.getElementById('btn-cat-scroll-left');
+    const scrollRightBtn = document.getElementById('btn-cat-scroll-right');
+
+    if (scrollLeftBtn && catContainer) {
+      scrollLeftBtn.addEventListener('click', () => {
+        catContainer.scrollBy({ left: -220, behavior: 'smooth' });
+      });
+    }
+
+    if (scrollRightBtn && catContainer) {
+      scrollRightBtn.addEventListener('click', () => {
+        catContainer.scrollBy({ left: 220, behavior: 'smooth' });
+      });
+    }
+
+    // Allow mouse wheel to horizontally scroll category bar
+    if (catContainer) {
+      catContainer.addEventListener('wheel', (e) => {
+        if (e.deltaY !== 0 && catContainer.scrollWidth > catContainer.clientWidth) {
+          e.preventDefault();
+          catContainer.scrollLeft += e.deltaY;
+        }
+      }, { passive: false });
     }
   },
 
@@ -544,6 +581,7 @@ window.POS = {
           className: 'btn btn-outline btn-sm btn-danger',
           onClick: () => {
             this.customerGstin = '';
+            this.updateGstinButtonState();
             window.App.closeModal();
             window.App.showToast('GSTIN cleared', 'info');
           }
@@ -555,6 +593,7 @@ window.POS = {
           onClick: () => {
             const input = document.getElementById('modal-customer-gstin');
             this.customerGstin = (input?.value || '').trim().toUpperCase();
+            this.updateGstinButtonState();
             window.App.closeModal();
             window.App.showToast('Customer GSTIN saved', 'success');
           }
@@ -567,6 +606,10 @@ window.POS = {
     this.cart = [];
     this.discount = { type: 'percent', value: 0 };
     this.customerGstin = '';
+    this.customerId = null;
+    this.selectedCustomer = null;
+    this.hideCustomerDropdown();
+    this.updateGstinButtonState();
 
     const tableInput = document.getElementById('pos-table-no');
     const nameInput = document.getElementById('pos-customer-name');
@@ -606,6 +649,7 @@ window.POS = {
       items: this.cart,
       table_no: tableNo,
       order_type: this.orderType,
+      customer_id: this.customerId || null,
       customer_name: customerName,
       customer_phone: customerPhone,
       customer_gstin: this.customerGstin,
@@ -651,5 +695,358 @@ window.POS = {
       if (saveBtn) saveBtn.disabled = false;
       if (savePrintBtn) savePrintBtn.disabled = false;
     }
+  },
+
+  async previewCurrentBill() {
+    if (this.cart.length === 0) {
+      window.App.showToast('Please add items to cart to preview bill', 'warning');
+      return;
+    }
+
+    const tableNo = (document.getElementById('pos-table-no')?.value || '').trim();
+    const customerName = (document.getElementById('pos-customer-name')?.value || '').trim();
+    const customerPhone = (document.getElementById('pos-customer-phone')?.value || '').trim();
+
+    const isInclusive = window.App.settings.gst_inclusive === '1';
+    let subtotal = 0;
+    let totalTaxable = 0;
+    let totalCgst = 0;
+    let totalSgst = 0;
+
+    const items = this.cart.map(i => {
+      const lineTotal = i.price * i.quantity;
+      subtotal += lineTotal;
+      const rate = i.gst_rate || 5;
+      let taxable, cgst, sgst;
+      if (isInclusive) {
+        taxable = Math.round(((lineTotal * 100) / (100 + rate)) * 100) / 100;
+        const gst = lineTotal - taxable;
+        cgst = Math.round((gst / 2) * 100) / 100;
+        sgst = Math.round((gst / 2) * 100) / 100;
+      } else {
+        taxable = lineTotal;
+        const gst = Math.round(((lineTotal * rate) / 100) * 100) / 100;
+        cgst = Math.round((gst / 2) * 100) / 100;
+        sgst = Math.round((gst / 2) * 100) / 100;
+      }
+      totalTaxable += taxable;
+      totalCgst += cgst;
+      totalSgst += sgst;
+
+      return {
+        ...i,
+        quantity: i.quantity,
+        price: i.price,
+        total: lineTotal,
+        taxable_amount: taxable,
+        cgst: cgst,
+        sgst: sgst
+      };
+    });
+
+    let discountAmount = 0;
+    if (this.discount.value > 0) {
+      if (this.discount.type === 'percent') {
+        discountAmount = (subtotal * this.discount.value) / 100;
+      } else {
+        discountAmount = Math.min(this.discount.value, subtotal);
+      }
+      if (window.App.settings.tax_on_discount === 'after' && subtotal > 0) {
+        const discountRatio = discountAmount / subtotal;
+        totalCgst = totalCgst * (1 - discountRatio);
+        totalSgst = totalSgst * (1 - discountRatio);
+      }
+    }
+
+    const grandTotal = Math.round(isInclusive ? Math.max(0, subtotal - discountAmount) : Math.max(0, subtotal - discountAmount + totalCgst + totalSgst));
+
+    // Build temporary order object for preview
+    const tempOrder = {
+      order_no: `PREVIEW`,
+      table_no: tableNo,
+      order_type: this.orderType,
+      customer_name: customerName || 'Guest',
+      customer_phone: customerPhone,
+      customer_gstin: this.customerGstin,
+      user_name: window.App?.currentUser?.name || window.App?.currentUser?.username || 'Cashier',
+      payment_mode: this.paymentMode,
+      created_at: new Date().toISOString(),
+      items: items,
+      subtotal: subtotal,
+      discount_amount: discountAmount,
+      discount_type: this.discount.type,
+      discount_value: this.discount.value,
+      taxable_amount: totalTaxable,
+      cgst: totalCgst,
+      sgst: totalSgst,
+      cgst_total: totalCgst,
+      sgst_total: totalSgst,
+      round_off: 0,
+      total: grandTotal,
+      notes: ''
+    };
+
+    await window.App.showPrintPreview(tempOrder, window.App.settings);
+  },
+
+  // ─── Customer Autocomplete & Directory Methods ─────────────────
+
+  async loadCustomers() {
+    try {
+      const res = await window.api.customers.getAll();
+      if (res.success && res.data) {
+        this.customers = res.data;
+      }
+    } catch (err) {
+      console.error('Failed to load customers for POS:', err);
+    }
+  },
+
+  setupCustomerAutocomplete() {
+    const nameInput = document.getElementById('pos-customer-name');
+    const dropdown = document.getElementById('pos-customer-dropdown');
+    const quickAddBtn = document.getElementById('btn-quick-add-customer');
+
+    if (quickAddBtn) {
+      quickAddBtn.onclick = (e) => {
+        e.stopPropagation();
+        const currentName = nameInput ? nameInput.value.trim() : '';
+        const currentPhone = document.getElementById('pos-customer-phone')?.value.trim() || '';
+        this.openAddCustomerModal(currentName, currentPhone);
+      };
+    }
+
+    if (!nameInput) return;
+
+    // Keystroke dynamic filtering
+    nameInput.addEventListener('input', (e) => {
+      const val = e.target.value;
+      // If user manually edited name away from selected customer, reset customerId
+      if (this.selectedCustomer && this.selectedCustomer.name !== val) {
+        this.customerId = null;
+        this.selectedCustomer = null;
+      }
+      this.filterCustomers(val);
+    });
+
+    // Focus opens dropdown with matching / recent suggestions
+    nameInput.addEventListener('focus', () => {
+      this.filterCustomers(nameInput.value);
+    });
+
+    // Keyboard navigation (ArrowDown, ArrowUp, Enter, Escape)
+    nameInput.addEventListener('keydown', (e) => {
+      if (!dropdown || dropdown.classList.contains('hidden')) {
+        if (e.key === 'ArrowDown') {
+          this.filterCustomers(nameInput.value);
+          e.preventDefault();
+        }
+        return;
+      }
+
+      const items = dropdown.querySelectorAll('.customer-dropdown-item');
+      const actionBtn = dropdown.querySelector('.customer-dropdown-action');
+      const totalCount = items.length + (actionBtn ? 1 : 0);
+
+      if (totalCount === 0) return;
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        this.activeDropdownIndex = (this.activeDropdownIndex + 1) % totalCount;
+        this.highlightDropdownItem(dropdown);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        this.activeDropdownIndex = (this.activeDropdownIndex - 1 + totalCount) % totalCount;
+        this.highlightDropdownItem(dropdown);
+      } else if (e.key === 'Enter') {
+        if (this.activeDropdownIndex >= 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (this.activeDropdownIndex < items.length) {
+            items[this.activeDropdownIndex].click();
+          } else if (actionBtn) {
+            actionBtn.click();
+          }
+        }
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.hideCustomerDropdown();
+      }
+    });
+
+    // Document click to hide dropdown when clicking outside
+    document.addEventListener('pointerdown', (e) => {
+      const metaContainer = document.getElementById('order-meta-container');
+      if (metaContainer && !metaContainer.contains(e.target)) {
+        this.hideCustomerDropdown();
+      }
+    });
+  },
+
+  filterCustomers(query) {
+    const dropdown = document.getElementById('pos-customer-dropdown');
+    if (!dropdown) return;
+
+    const term = (query || '').trim().toLowerCase();
+    this.activeDropdownIndex = -1;
+
+    let matches = [];
+    if (!term) {
+      matches = this.customers.slice(0, 8);
+    } else {
+      matches = this.customers.filter(c => {
+        const nameMatch = c.name && c.name.toLowerCase().includes(term);
+        const phoneMatch = c.phone && c.phone.includes(term);
+        const gstinMatch = c.gstin && c.gstin.toLowerCase().includes(term);
+        return nameMatch || phoneMatch || gstinMatch;
+      }).slice(0, 8);
+    }
+    this.filteredCustomers = matches;
+
+    let html = `
+      <div class="customer-dropdown-header">
+        <span>${term ? 'Matching Customers' : 'Customer Directory'}</span>
+        <span class="customer-dropdown-count">${matches.length} found</span>
+      </div>
+    `;
+
+    if (matches.length > 0) {
+      html += '<div class="customer-dropdown-list">';
+      matches.forEach((cust, idx) => {
+        const initial = (cust.name || 'C')[0].toUpperCase();
+        const highlightedName = this.highlightMatch(cust.name, term);
+        const phoneDisplay = cust.phone ? `📞 ${this.highlightMatch(cust.phone, term)}` : '';
+        const gstinBadge = cust.gstin ? `<span class="cust-badge-gstin">${cust.gstin}</span>` : '';
+
+        html += `
+          <div class="customer-dropdown-item" data-index="${idx}" data-id="${cust.id}">
+            <div class="cust-item-avatar">${initial}</div>
+            <div class="cust-item-info">
+              <div class="cust-item-name">${highlightedName}</div>
+              <div class="cust-item-meta">
+                ${phoneDisplay ? `<span class="cust-item-phone">${phoneDisplay}</span>` : ''}
+                ${gstinBadge}
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div>';
+    } else if (term) {
+      html += `<div class="customer-dropdown-empty">No customer found matching "<strong>${this.escapeHtml(query.trim())}</strong>"</div>`;
+    }
+
+    // Bottom action button: Add customer to list
+    const addLabel = term ? `Add "${this.escapeHtml(query.trim())}" to customer list` : 'Add New Customer to Directory';
+    html += `
+      <div class="customer-dropdown-footer">
+        <button type="button" class="customer-dropdown-action" id="dropdown-add-customer">
+          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
+          <span>➕ ${addLabel}</span>
+        </button>
+      </div>
+    `;
+
+    dropdown.innerHTML = html;
+    dropdown.classList.remove('hidden');
+
+    // Attach click events
+    dropdown.querySelectorAll('.customer-dropdown-item').forEach(item => {
+      item.onclick = (e) => {
+        e.stopPropagation();
+        const id = parseInt(item.getAttribute('data-id'), 10);
+        const cust = this.customers.find(c => c.id === id);
+        if (cust) {
+          this.selectCustomer(cust);
+        }
+      };
+    });
+
+    const addBtn = dropdown.querySelector('#dropdown-add-customer');
+    if (addBtn) {
+      addBtn.onclick = (e) => {
+        e.stopPropagation();
+        this.hideCustomerDropdown();
+        const currentName = document.getElementById('pos-customer-name')?.value.trim() || '';
+        const currentPhone = document.getElementById('pos-customer-phone')?.value.trim() || '';
+        this.openAddCustomerModal(currentName, currentPhone);
+      };
+    }
+  },
+
+  highlightMatch(text, term) {
+    if (!text) return '';
+    if (!term) return this.escapeHtml(text);
+    const escapedText = this.escapeHtml(text);
+    const escapedTerm = this.escapeHtml(term);
+    const regex = new RegExp(`(${escapedTerm.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&')})`, 'gi');
+    return escapedText.replace(regex, '<mark class="highlight">$1</mark>');
+  },
+
+  highlightDropdownItem(dropdown) {
+    const items = dropdown.querySelectorAll('.customer-dropdown-item');
+    const actionBtn = dropdown.querySelector('.customer-dropdown-action');
+    items.forEach(el => el.classList.remove('active'));
+    if (actionBtn) actionBtn.classList.remove('active');
+
+    if (this.activeDropdownIndex >= 0 && this.activeDropdownIndex < items.length) {
+      const activeEl = items[this.activeDropdownIndex];
+      activeEl.classList.add('active');
+      activeEl.scrollIntoView({ block: 'nearest' });
+    } else if (this.activeDropdownIndex === items.length && actionBtn) {
+      actionBtn.classList.add('active');
+      actionBtn.scrollIntoView({ block: 'nearest' });
+    }
+  },
+
+  hideCustomerDropdown() {
+    const dropdown = document.getElementById('pos-customer-dropdown');
+    if (dropdown) {
+      dropdown.classList.add('hidden');
+      this.activeDropdownIndex = -1;
+    }
+  },
+
+  selectCustomer(cust) {
+    if (!cust) return;
+    this.customerId = cust.id;
+    this.selectedCustomer = cust;
+    this.customerGstin = cust.gstin || '';
+
+    const nameInput = document.getElementById('pos-customer-name');
+    const phoneInput = document.getElementById('pos-customer-phone');
+    if (nameInput) nameInput.value = cust.name || '';
+    if (phoneInput && cust.phone) phoneInput.value = cust.phone;
+
+    this.updateGstinButtonState();
+    this.hideCustomerDropdown();
+  },
+
+  updateGstinButtonState() {
+    const gstinBtn = document.getElementById('btn-customer-gstin');
+    if (!gstinBtn) return;
+    if (this.customerGstin) {
+      gstinBtn.classList.add('active');
+      gstinBtn.title = `Customer GSTIN: ${this.customerGstin}`;
+    } else {
+      gstinBtn.classList.remove('active');
+      gstinBtn.title = 'Customer GSTIN';
+    }
+  },
+
+  openAddCustomerModal(initialName = '', initialPhone = '') {
+    if (window.CustomersUI?.openAddCustomerModal) {
+      window.CustomersUI.openAddCustomerModal(initialName, initialPhone);
+    }
+  },
+
+  escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
   }
 };

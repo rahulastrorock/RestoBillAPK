@@ -18,12 +18,13 @@ class GDriveService {
     this.credentialsPath = '';
     this.folderName = 'RestoBill_Backups';
     this.folderId = null;
+    this.userEmail = null;
   }
 
   init(userDataPath) {
     this.configPath = userDataPath;
     this.tokenPath = path.join(userDataPath, 'gdrive_token.json');
-    this.credentialsPath = path.join(userDataPath, 'gdrive_credentials.json');
+    this.credentialsPath = this._resolveCredentialsPath();
 
     // Try to load existing token
     if (fs.existsSync(this.tokenPath) && fs.existsSync(this.credentialsPath)) {
@@ -33,6 +34,7 @@ class GDriveService {
         this.auth.setCredentials(token);
         this.drive = google.drive({ version: 'v3', auth: this.auth });
         console.log('Google Drive: Authenticated from saved token');
+        this._fetchUserInfo().catch(() => {});
       } catch (err) {
         console.log('Google Drive: Could not load saved credentials', err.message);
         this.auth = null;
@@ -41,10 +43,53 @@ class GDriveService {
     }
   }
 
+  _resolveCredentialsPath() {
+    const candidates = [
+      path.join(this.configPath, 'gdrive_credentials.json'),
+      path.join(this.configPath, 'credentials.json'),
+      path.join(process.cwd(), 'credentials.json'),
+      path.join(process.cwd(), 'gdrive_credentials.json'),
+      path.join(__dirname, '..', '..', 'credentials.json'),
+      path.join(__dirname, '..', '..', 'gdrive_credentials.json'),
+    ];
+
+    for (const p of candidates) {
+      if (fs.existsSync(p)) {
+        try {
+          const raw = fs.readFileSync(p, 'utf-8');
+          const data = JSON.parse(raw);
+          if (data.installed || data.web) {
+            const target = path.join(this.configPath, 'gdrive_credentials.json');
+            if (p !== target && !fs.existsSync(target)) {
+              try { fs.writeFileSync(target, raw, 'utf-8'); } catch (e) {}
+            }
+            return p;
+          }
+        } catch (e) {}
+      }
+    }
+    return path.join(this.configPath, 'gdrive_credentials.json');
+  }
+
+  async _fetchUserInfo() {
+    if (!this.drive) return null;
+    try {
+      const res = await this.drive.about.get({ fields: 'user(displayName, emailAddress)' });
+      if (res.data?.user?.emailAddress) {
+        this.userEmail = res.data.user.emailAddress;
+      }
+      return this.userEmail;
+    } catch (e) {
+      return null;
+    }
+  }
+
   _initClient() {
+    this.credentialsPath = this._resolveCredentialsPath();
+
     if (!fs.existsSync(this.credentialsPath)) {
       throw new Error(
-        'Google Drive credentials not found. Please place your OAuth2 credentials JSON file at: ' +
+        'Google Drive credentials file not found. Place credentials.json in your application folder or gdrive_credentials.json in ' +
         this.credentialsPath
       );
     }
@@ -59,7 +104,7 @@ class GDriveService {
     this.auth = new google.auth.OAuth2(
       client_id,
       client_secret,
-      redirect_uris ? redirect_uris[0] : 'urn:ietf:wg:oauth:2.0:oob'
+      redirect_uris ? redirect_uris[0] : 'http://localhost'
     );
   }
 
@@ -88,6 +133,19 @@ class GDriveService {
       this._initClient();
     }
 
+    if (!code || typeof code !== 'string') {
+      throw new Error('Authorization code cannot be empty.');
+    }
+
+    code = code.trim();
+    // Auto-extract code if the user pasted the entire redirect URL
+    if (code.includes('code=')) {
+      const match = code.match(/[?&]code=([^&]+)/);
+      if (match) {
+        code = decodeURIComponent(match[1]);
+      }
+    }
+
     const { tokens } = await this.auth.getToken(code);
     this.auth.setCredentials(tokens);
 
@@ -95,8 +153,13 @@ class GDriveService {
     fs.writeFileSync(this.tokenPath, JSON.stringify(tokens, null, 2));
 
     this.drive = google.drive({ version: 'v3', auth: this.auth });
+    await this._fetchUserInfo();
 
-    return { authenticated: true };
+    return {
+      authenticated: true,
+      connected: true,
+      email: this.userEmail,
+    };
   }
 
   /**
@@ -157,17 +220,44 @@ class GDriveService {
       body: fs.createReadStream(dbPath),
     };
 
+    // 1. FIRST: Upload new backup file to Google Drive
     const file = await this.drive.files.create({
       requestBody: fileMetadata,
       media: media,
       fields: 'id, name, size, createdTime',
     });
 
+    console.log(`[GDrive] New backup uploaded: ${file.data.name} (${file.data.id})`);
+
+    // 2. THEN: Only after successful upload, delete previous backup file(s)
+    try {
+      const existingFiles = await this.drive.files.list({
+        q: `'${folderId}' in parents and trashed=false`,
+        fields: 'files(id, name)',
+        spaces: 'drive',
+      });
+
+      if (existingFiles.data.files && existingFiles.data.files.length > 0) {
+        const olderFiles = existingFiles.data.files.filter(f => f.id !== file.data.id);
+        for (const oldFile of olderFiles) {
+          try {
+            console.log(`[GDrive] Removing previous backup: ${oldFile.name} (${oldFile.id})`);
+            await this.drive.files.delete({ fileId: oldFile.id });
+          } catch (delErr) {
+            console.warn(`[GDrive] Could not delete old file ${oldFile.id}:`, delErr.message);
+          }
+        }
+      }
+    } catch (cleanupErr) {
+      console.warn('[GDrive] Cleanup of previous backups failed:', cleanupErr.message);
+    }
+
     // Update last backup time in a local file
     const backupInfo = {
       lastBackup: new Date().toISOString(),
       fileId: file.data.id,
       fileName: file.data.name,
+      fileSize: file.data.size,
     };
     fs.writeFileSync(
       path.join(this.configPath, 'last_backup.json'),
@@ -179,7 +269,7 @@ class GDriveService {
       fileId: file.data.id,
       fileName: file.data.name,
       size: file.data.size,
-      timestamp: new Date().toISOString(),
+      timestamp: backupInfo.lastBackup,
     };
   }
 
@@ -230,7 +320,7 @@ class GDriveService {
    */
   async listBackups() {
     if (!this.drive) {
-      throw new Error('Not authenticated with Google Drive');
+      return [];
     }
 
     const folderId = await this._getOrCreateFolder();
@@ -267,13 +357,16 @@ class GDriveService {
       }
     }
 
-    const hasCredentials = fs.existsSync(this.credentialsPath);
+    const credPath = this._resolveCredentialsPath();
+    const hasCredentials = fs.existsSync(credPath);
 
     return {
+      connected: isAuthenticated,
       authenticated: isAuthenticated,
+      email: this.userEmail,
       hasCredentials,
       lastBackup,
-      credentialsPath: this.credentialsPath,
+      credentialsPath: credPath,
     };
   }
 
@@ -284,12 +377,15 @@ class GDriveService {
     this.auth = null;
     this.drive = null;
     this.folderId = null;
+    this.userEmail = null;
 
     if (fs.existsSync(this.tokenPath)) {
-      fs.unlinkSync(this.tokenPath);
+      try {
+        fs.unlinkSync(this.tokenPath);
+      } catch (e) {}
     }
 
-    return { disconnected: true };
+    return { disconnected: true, connected: false };
   }
 
   _formatBytes(bytes) {

@@ -9,6 +9,8 @@ window.OrdersUI = {
     startDate: '',
     endDate: '',
     status: '',
+    phone: '',
+    allDates: false,
     page: 1,
     limit: 50
   },
@@ -35,17 +37,93 @@ window.OrdersUI = {
   },
 
   setupEventListeners() {
+    // Phone search input (filters on keystroke debounce and Enter)
+    const phoneInput = document.getElementById('orders-search-phone');
+    if (phoneInput) {
+      let debounceTimer;
+      phoneInput.addEventListener('input', (e) => {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          this.filters.phone = (e.target.value || '').trim();
+          this.filters.page = 1;
+          this.fetchOrders();
+        }, 300);
+      });
+
+      phoneInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          clearTimeout(debounceTimer);
+          this.filters.phone = (e.target.value || '').trim();
+          this.filters.page = 1;
+          this.fetchOrders();
+        }
+      });
+    }
+
+    // All dates checkbox toggle
+    const allDatesCheckbox = document.getElementById('orders-all-dates');
+    const startInput = document.getElementById('orders-start-date');
+    const endInput = document.getElementById('orders-end-date');
+    if (allDatesCheckbox) {
+      allDatesCheckbox.addEventListener('change', () => {
+        this.filters.allDates = allDatesCheckbox.checked;
+        if (startInput) startInput.disabled = this.filters.allDates;
+        if (endInput) endInput.disabled = this.filters.allDates;
+        this.filters.page = 1;
+        this.fetchOrders();
+      });
+    }
+
+    // Filter button
     const filterBtn = document.getElementById('btn-filter-orders');
     if (filterBtn) {
       filterBtn.onclick = () => {
         const start = document.getElementById('orders-start-date')?.value;
         const end = document.getElementById('orders-end-date')?.value;
         const status = document.getElementById('orders-status-filter')?.value;
+        const phone = document.getElementById('orders-search-phone')?.value;
 
         this.filters.startDate = start || '';
         this.filters.endDate = end || '';
         this.filters.status = status || '';
+        this.filters.phone = (phone || '').trim();
         this.filters.page = 1;
+        this.fetchOrders();
+      };
+    }
+
+    // Reset button
+    const resetBtn = document.getElementById('btn-reset-orders');
+    if (resetBtn) {
+      resetBtn.onclick = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const phoneEl = document.getElementById('orders-search-phone');
+        const startEl = document.getElementById('orders-start-date');
+        const endEl = document.getElementById('orders-end-date');
+        const statusEl = document.getElementById('orders-status-filter');
+        const allDatesEl = document.getElementById('orders-all-dates');
+
+        if (phoneEl) phoneEl.value = '';
+        if (startEl) {
+          startEl.value = today;
+          startEl.disabled = false;
+        }
+        if (endEl) {
+          endEl.value = today;
+          endEl.disabled = false;
+        }
+        if (statusEl) statusEl.value = '';
+        if (allDatesEl) allDatesEl.checked = false;
+
+        this.filters = {
+          startDate: today,
+          endDate: today,
+          status: '',
+          phone: '',
+          allDates: false,
+          page: 1,
+          limit: 50
+        };
         this.fetchOrders();
       };
     }
@@ -70,13 +148,19 @@ window.OrdersUI = {
 
     try {
       const offset = (this.filters.page - 1) * this.filters.limit;
-      const res = await window.api.orders.getAll({
-        startDate: this.filters.startDate,
-        endDate: this.filters.endDate,
+      const payload = {
         status: this.filters.status,
+        phone: this.filters.phone,
         limit: this.filters.limit,
         offset: offset
-      });
+      };
+
+      if (!this.filters.allDates) {
+        if (this.filters.startDate) payload.startDate = this.filters.startDate;
+        if (this.filters.endDate) payload.endDate = this.filters.endDate;
+      }
+
+      const res = await window.api.orders.getAll(payload);
 
       if (res.success && res.data) {
         this.orders = res.data.orders || [];
@@ -96,10 +180,13 @@ window.OrdersUI = {
     if (!tbody) return;
 
     if (this.orders.length === 0) {
+      const msg = this.filters.phone
+        ? `No orders found matching phone "${window.App.escapeHtml(this.filters.phone)}".`
+        : 'No orders found for the selected period.';
       tbody.innerHTML = `
         <tr>
           <td colspan="9" class="text-center" style="padding: 40px; color: var(--text-muted);">
-            No orders found for the selected period.
+            ${msg}
           </td>
         </tr>
       `;
@@ -121,25 +208,31 @@ window.OrdersUI = {
           <td>${window.App.formatDateTime(order.created_at)}</td>
           <td><span class="badge badge-manager">${typeIcons[order.order_type] || order.order_type}</span></td>
           <td>${order.table_no ? `Table ${order.table_no}` : '-'}</td>
-          <td>${order.customer_name ? `${order.customer_name}` : 'Walk-in'}</td>
+          <td>
+            <div style="font-weight:600; color:var(--text-primary);">${order.customer_name || 'Walk-in'}</div>
+            ${order.customer_phone ? `<div style="font-size:11px; color:var(--accent-primary); font-family:monospace; margin-top:2px;">📞 ${order.customer_phone}</div>` : ''}
+          </td>
           <td style="font-weight:700; color:${isVoided ? 'var(--text-muted)' : 'var(--accent-primary)'};">${window.App.formatCurrency(order.total)}</td>
           <td><span class="badge badge-cashier">${(order.payment_mode || 'cash').toUpperCase()}</span></td>
           <td>
             <span class="badge ${isVoided ? 'badge-voided' : 'badge-completed'}">
-              ${isVoided ? 'Voided' : 'Completed'}
+              ${isVoided ? 'Deleted' : 'Completed'}
             </span>
           </td>
           <td>
             <div class="action-btns">
-              <button class="action-btn action-view btn-view-order" data-id="${order.id}" title="View Details">
+              <button class="action-btn action-view btn-preview-order" data-id="${order.id}" title="Print Preview">
                 <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+              </button>
+              <button class="action-btn action-view btn-view-order" data-id="${order.id}" title="View Details">
+                <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
               </button>
               <button class="action-btn action-print btn-print-order" data-id="${order.id}" title="Print Receipt">
                 <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd"/></svg>
               </button>
               ${!isVoided ? `
-                <button class="action-btn action-delete btn-void-order" data-id="${order.id}" data-no="${order.order_no}" title="Void Order">
-                  <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/></svg>
+                <button class="action-btn action-delete btn-void-order" data-id="${order.id}" data-no="${order.order_no}" title="Delete Order">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
                 </button>
               ` : ''}
             </div>
@@ -149,6 +242,13 @@ window.OrdersUI = {
     }).join('');
 
     // Attach row button events
+    tbody.querySelectorAll('.btn-preview-order').forEach(btn => {
+      btn.onclick = async () => {
+        const id = parseInt(btn.getAttribute('data-id'), 10);
+        await this.previewOrder(id);
+      };
+    });
+
     tbody.querySelectorAll('.btn-view-order').forEach(btn => {
       btn.onclick = () => {
         const id = parseInt(btn.getAttribute('data-id'), 10);
@@ -167,7 +267,7 @@ window.OrdersUI = {
       btn.onclick = () => {
         const id = parseInt(btn.getAttribute('data-id'), 10);
         const orderNo = btn.getAttribute('data-no');
-        this.promptVoidOrder(id, orderNo);
+        this.promptDeleteOrder(id, orderNo);
       };
     });
   },
@@ -251,10 +351,13 @@ window.OrdersUI = {
             <span class="detail-info-label">Cashier / Staff</span>
             <div class="detail-info-value">${order.user_name || 'Admin'}</div>
           </div>
-          ${order.customer_name ? `
+          ${(order.customer_name || order.customer_phone) ? `
             <div class="detail-info-item">
-              <span class="detail-info-label">Customer</span>
-              <div class="detail-info-value">${order.customer_name} ${order.customer_phone ? `(${order.customer_phone})` : ''}</div>
+              <span class="detail-info-label">Customer & Contact</span>
+              <div class="detail-info-value">
+                <div>${order.customer_name || 'Walk-in'}</div>
+                ${order.customer_phone ? `<div style="font-size:12px;color:var(--accent-primary);margin-top:2px;">📞 ${order.customer_phone}</div>` : ''}
+              </div>
             </div>
           ` : ''}
           ${order.customer_gstin ? `
@@ -267,7 +370,7 @@ window.OrdersUI = {
             <span class="detail-info-label">Status</span>
             <div class="detail-info-value">
               <span class="badge ${isVoided ? 'badge-voided' : 'badge-completed'}">
-                ${isVoided ? 'Voided' : 'Completed'}
+                ${isVoided ? 'Deleted' : 'Completed'}
               </span>
             </div>
           </div>
@@ -321,6 +424,10 @@ window.OrdersUI = {
         ` : ''}
 
         <div style="display:flex;gap:8px;flex-direction:column;">
+          <button class="btn btn-outline btn-sm" id="panel-btn-preview" style="border-color:var(--accent-primary);color:var(--accent-primary);">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+            Print Preview
+          </button>
           <button class="btn btn-primary btn-sm" id="panel-btn-receipt">
             <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd"/></svg>
             Print Thermal Receipt
@@ -331,7 +438,7 @@ window.OrdersUI = {
           </button>
           ${!isVoided ? `
             <button class="btn btn-outline btn-sm btn-danger" id="panel-btn-void">
-              Void Order
+              Delete Order
             </button>
           ` : ''}
         </div>
@@ -340,10 +447,14 @@ window.OrdersUI = {
       window.App.openDetailPanel(`Order ${order.order_no}`, detailHtml);
 
       // Panel Action Listeners
+      const btnPreview = document.getElementById('panel-btn-preview');
       const btnReceipt = document.getElementById('panel-btn-receipt');
       const btnInvoice = document.getElementById('panel-btn-invoice');
       const btnVoid = document.getElementById('panel-btn-void');
 
+      if (btnPreview) {
+        btnPreview.onclick = () => this.previewOrder(order.id);
+      }
       if (btnReceipt) {
         btnReceipt.onclick = () => this.printOrderReceipt(order.id);
       }
@@ -351,7 +462,7 @@ window.OrdersUI = {
         btnInvoice.onclick = () => this.printOrderInvoice(order.id);
       }
       if (btnVoid) {
-        btnVoid.onclick = () => this.promptVoidOrder(order.id, order.order_no);
+        btnVoid.onclick = () => this.promptDeleteOrder(order.id, order.order_no);
       }
     } catch (err) {
       console.error('Error opening order detail:', err);
@@ -383,27 +494,38 @@ window.OrdersUI = {
     }
   },
 
-  promptVoidOrder(orderId, orderNo) {
+  async previewOrder(orderId) {
+    try {
+      const res = await window.api.orders.getById(orderId);
+      if (res.success && res.data) {
+        await window.App.showPrintPreview(res.data, window.App.settings);
+      }
+    } catch (err) {
+      window.App.showToast('Could not load preview: ' + err.message, 'error');
+    }
+  },
+
+  promptDeleteOrder(orderId, orderNo) {
     window.App.showModal({
-      title: `Void Order #${orderNo}`,
+      title: `Delete Order #${orderNo}`,
       bodyHtml: `
         <p style="color:var(--color-danger);font-weight:600;margin-bottom:12px;">
-          Warning: Voiding an order cancels the sale and excludes it from revenue reports.
+          Warning: Deleting this order cancels the sale and excludes it from revenue reports.
         </p>
         <div class="form-group">
-          <label>Reason for Voiding *</label>
+          <label>Reason for Deletion *</label>
           <input type="text" id="modal-void-reason" placeholder="e.g. Customer cancelled, punch mistake, test order" required autofocus>
         </div>
       `,
       footerButtons: [
         { text: 'Cancel', className: 'btn btn-outline btn-sm' },
         {
-          text: 'Confirm Void',
+          text: 'Confirm Delete',
           className: 'btn btn-primary btn-sm btn-danger',
           onClick: async () => {
             const reason = document.getElementById('modal-void-reason')?.value.trim();
             if (!reason) {
-              window.App.showToast('Please provide a reason for voiding', 'warning');
+              window.App.showToast('Please provide a reason for deleting', 'warning');
               return;
             }
 
@@ -412,12 +534,12 @@ window.OrdersUI = {
               const res = await window.api.orders.void(orderId, userId, reason);
 
               if (res.success) {
-                window.App.showToast(`Order #${orderNo} voided`, 'info');
+                window.App.showToast(`Order #${orderNo} deleted`, 'info');
                 window.App.closeModal();
                 window.App.closeDetailPanel();
                 await this.fetchOrders();
               } else {
-                window.App.showToast(res.error || 'Failed to void order', 'error');
+                window.App.showToast(res.error || 'Failed to delete order', 'error');
               }
             } catch (err) {
               window.App.showToast(err.message, 'error');

@@ -24,6 +24,11 @@ class AuthService {
       throw new Error('Invalid username or password');
     }
 
+    // Update user's last_login timestamp
+    this.db.prepare(
+      "UPDATE users SET last_login = datetime('now', 'localtime') WHERE id = ?"
+    ).run(user.id);
+
     // Log the login
     this.db.prepare(
       'INSERT INTO audit_log (user_id, user_name, action, entity, details) VALUES (?, ?, ?, ?, ?)'
@@ -31,6 +36,7 @@ class AuthService {
 
     // Return user without password
     const { password_hash, ...safeUser } = user;
+    safeUser.last_login = new Date().toISOString();
     return safeUser;
   }
 
@@ -43,23 +49,28 @@ class AuthService {
       throw new Error('User not found');
     }
 
-    const isValid = bcrypt.compareSync(oldPassword, user.password_hash);
-    if (!isValid) {
-      throw new Error('Current password is incorrect');
+    if (oldPassword) {
+      if (typeof oldPassword !== 'string') {
+        throw new Error('Invalid current password format');
+      }
+      const isValid = bcrypt.compareSync(oldPassword, user.password_hash);
+      if (!isValid) {
+        throw new Error('Current password is incorrect');
+      }
     }
 
-    if (newPassword.length < 4) {
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.length < 4) {
       throw new Error('New password must be at least 4 characters');
     }
 
     const newHash = bcrypt.hashSync(newPassword, 10);
-    this.db.prepare('UPDATE users SET password_hash = ?, updated_at = datetime("now", "localtime") WHERE id = ?')
+    this.db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
       .run(newHash, userId);
 
     // Log password change
     this.db.prepare(
       'INSERT INTO audit_log (user_id, user_name, action, entity, details) VALUES (?, ?, ?, ?, ?)'
-    ).run(userId, user.name, 'PASSWORD_CHANGE', 'auth', 'Password changed');
+    ).run(userId, user.name, 'PASSWORD_CHANGE', 'auth', oldPassword ? 'Password changed' : `Password reset for user ${user.username}`);
 
     return true;
   }

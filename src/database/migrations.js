@@ -16,6 +16,7 @@ function runMigrations() {
       password_hash TEXT NOT NULL,
       role TEXT NOT NULL DEFAULT 'cashier' CHECK(role IN ('admin', 'manager', 'cashier')),
       active INTEGER NOT NULL DEFAULT 1,
+      last_login TEXT,
       created_at TEXT DEFAULT (datetime('now', 'localtime')),
       updated_at TEXT DEFAULT (datetime('now', 'localtime'))
     );
@@ -142,6 +143,27 @@ function runMigrations() {
       created_at TEXT DEFAULT (datetime('now', 'localtime'))
     );
 
+    -- ─── Draft Bills Table (Multi-customer / Tablewise intermediate bills) ──
+    CREATE TABLE IF NOT EXISTS draft_bills (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT 'Table 1',
+      table_no TEXT DEFAULT '',
+      order_type TEXT NOT NULL DEFAULT 'dine_in',
+      customer_id INTEGER,
+      customer_name TEXT DEFAULT '',
+      customer_phone TEXT DEFAULT '',
+      customer_gstin TEXT DEFAULT '',
+      discount_type TEXT DEFAULT 'percent',
+      discount_value REAL DEFAULT 0,
+      payment_mode TEXT DEFAULT 'cash',
+      notes TEXT DEFAULT '',
+      items_json TEXT NOT NULL DEFAULT '[]',
+      subtotal REAL DEFAULT 0,
+      total REAL DEFAULT 0,
+      created_at TEXT DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+    );
+
     -- ─── Indexes for Performance ────────────────────────────────────
     CREATE INDEX IF NOT EXISTS idx_orders_created_at ON orders(created_at);
     CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
@@ -154,6 +176,25 @@ function runMigrations() {
     CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
     CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers(phone);
   `);
+
+  // Migration for existing databases: ensure users table has last_login
+  try {
+    db.exec('ALTER TABLE users ADD COLUMN last_login TEXT;');
+  } catch (e) {
+    // Column already exists
+  }
+
+  // Backfill last_login from audit_log if currently empty
+  try {
+    db.exec(`
+      UPDATE users 
+      SET last_login = (
+        SELECT MAX(created_at) FROM audit_log 
+        WHERE audit_log.user_id = users.id AND audit_log.action = 'LOGIN'
+      )
+      WHERE last_login IS NULL;
+    `);
+  } catch (e) {}
 
   console.log('Database migrations completed successfully.');
 }

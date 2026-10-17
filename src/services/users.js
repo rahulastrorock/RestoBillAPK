@@ -11,7 +11,7 @@ class UserService {
    */
   getAll() {
     const users = this.db.prepare(
-      'SELECT id, name, username, role, active, created_at, updated_at FROM users ORDER BY created_at DESC'
+      'SELECT id, name, username, role, active, last_login, created_at, updated_at FROM users ORDER BY created_at DESC'
     ).all();
     return users;
   }
@@ -80,7 +80,7 @@ class UserService {
 
     if (updates.length === 0) return true;
 
-    updates.push('updated_at = datetime("now", "localtime")');
+    updates.push("updated_at = datetime('now', 'localtime')");
     values.push(id);
 
     this.db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
@@ -108,7 +108,7 @@ class UserService {
     }
 
     const newStatus = user.active === 1 ? 0 : 1;
-    this.db.prepare('UPDATE users SET active = ?, updated_at = datetime("now", "localtime") WHERE id = ?')
+    this.db.prepare("UPDATE users SET active = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
       .run(newStatus, id);
 
     return { ...user, active: newStatus, password_hash: undefined };
@@ -138,7 +138,7 @@ class UserService {
 
     if (orderCount.count > 0) {
       // Soft delete instead - deactivate
-      this.db.prepare('UPDATE users SET active = 0, updated_at = datetime("now", "localtime") WHERE id = ?').run(id);
+      this.db.prepare("UPDATE users SET active = 0, updated_at = datetime('now', 'localtime') WHERE id = ?").run(id);
       return { softDeleted: true, message: 'User deactivated (has existing orders)' };
     }
 

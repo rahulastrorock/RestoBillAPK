@@ -63,6 +63,32 @@ window.SettingsUI = {
         </p>
 
         <form id="settings-restaurant-form">
+          <!-- Restaurant Logo Section -->
+          <div class="form-group restaurant-logo-card" style="margin-bottom:20px;">
+            <label style="font-weight:600;display:block;margin-bottom:8px;">Restaurant Logo</label>
+            <div style="display:flex;align-items:center;gap:18px;padding:16px;background:var(--bg-tertiary);border:1px dashed var(--border-color);border-radius:var(--radius-md);">
+              <div id="logo-preview-box" style="width:110px;height:80px;border-radius:var(--radius-sm);background:var(--bg-surface);border:1px solid var(--border-color);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0;">
+                ${s.restaurant_logo ? `<img src="${s.restaurant_logo}" alt="Logo" style="max-width:100%;max-height:100%;object-fit:contain;">` : `<span style="font-size:11px;color:var(--text-muted);text-align:center;padding:4px;">No Logo</span>`}
+              </div>
+              <div style="flex:1;">
+                <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:8px;">
+                  <input type="file" id="restaurant-logo-file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style="display:none;">
+                  <button type="button" class="btn btn-outline btn-sm" id="btn-upload-logo">
+                    <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
+                    ${s.restaurant_logo ? 'Change Logo' : 'Upload Logo'}
+                  </button>
+                  <button type="button" class="btn btn-outline btn-sm btn-danger ${!s.restaurant_logo ? 'hidden' : ''}" id="btn-remove-logo">
+                    Remove
+                  </button>
+                  <input type="hidden" name="restaurant_logo" id="input-restaurant-logo" value="${s.restaurant_logo || ''}">
+                </div>
+                <p style="font-size:12px;color:var(--text-muted);margin:0;">
+                  PNG, JPG, or SVG (transparent background recommended). This logo will appear on receipts and tax invoices.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div class="form-group">
             <label>Restaurant Name *</label>
             <input type="text" name="restaurant_name" value="${s.restaurant_name || ''}" placeholder="e.g. Royal Spice Restaurant" required>
@@ -114,6 +140,54 @@ window.SettingsUI = {
         </form>
       </div>
     `;
+
+    // Logo upload listeners
+    const fileInput = document.getElementById('restaurant-logo-file');
+    const btnUpload = document.getElementById('btn-upload-logo');
+    const btnRemove = document.getElementById('btn-remove-logo');
+    const hiddenLogo = document.getElementById('input-restaurant-logo');
+    const previewBox = document.getElementById('logo-preview-box');
+
+    if (btnUpload && fileInput) {
+      btnUpload.onclick = () => fileInput.click();
+      fileInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.size > 2 * 1024 * 1024) {
+          window.App.showToast('Logo file size should be less than 2MB', 'warning');
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = (re) => {
+          const dataUrl = re.target.result;
+          if (hiddenLogo) hiddenLogo.value = dataUrl;
+          if (previewBox) {
+            previewBox.innerHTML = `<img src="${dataUrl}" alt="Logo" style="max-width:100%;max-height:100%;object-fit:contain;">`;
+          }
+          if (btnRemove) btnRemove.classList.remove('hidden');
+          if (btnUpload) {
+            btnUpload.innerHTML = `<svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg> Change Logo`;
+          }
+        };
+        reader.readAsDataURL(file);
+      };
+    }
+
+    if (btnRemove) {
+      btnRemove.onclick = () => {
+        if (hiddenLogo) hiddenLogo.value = '';
+        if (previewBox) {
+          previewBox.innerHTML = `<span style="font-size:11px;color:var(--text-muted);text-align:center;padding:4px;">No Logo</span>`;
+        }
+        btnRemove.classList.add('hidden');
+        if (btnUpload) {
+          btnUpload.innerHTML = `<svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg> Upload Logo`;
+        }
+        if (fileInput) fileInput.value = '';
+      };
+    }
 
     document.getElementById('settings-restaurant-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -309,6 +383,7 @@ window.SettingsUI = {
   },
 
   async renderBackupTab(container) {
+    const s = this.settings;
     container.innerHTML = `
       <div class="settings-section">
         <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">Google Drive Cloud Backup</h3>
@@ -316,41 +391,134 @@ window.SettingsUI = {
           Automatically or manually backup your restaurant database (menu, orders, customers) to Google Drive.
         </p>
 
-        <div id="backup-status-container" style="padding:16px;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);margin-bottom:24px;">
+        <div id="backup-status-container" style="padding:16px;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);margin-bottom:20px;">
           <div class="loading-overlay"><div class="spinner"></div> Checking Google Drive connection...</div>
         </div>
 
-        <div style="display:flex;gap:10px;margin-bottom:24px;">
-          <button class="btn btn-primary btn-sm" id="btn-trigger-backup">
-            ☁️ Backup Now
-          </button>
-          <button class="btn btn-outline btn-sm" id="btn-refresh-backups">
-            🔄 Refresh Backups
-          </button>
+        <!-- Automatic Backup Schedule Card -->
+        <div style="background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);padding:20px;margin-bottom:24px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+            <div>
+              <h4 style="font-size:15px;font-weight:700;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;">
+                <span>⏰</span> Automatic Backup Schedule
+              </h4>
+              <p style="font-size:12px;color:var(--text-muted);margin:0;">
+                Keep your restaurant data safe without manual effort. Runs in the background and uploads snapshots to Google Drive.
+              </p>
+            </div>
+            <span style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:600;background:${s.backup_enabled === '1' ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)'};color:${s.backup_enabled === '1' ? 'var(--color-success)' : 'var(--text-muted)'};border:1px solid ${s.backup_enabled === '1' ? 'rgba(34,197,94,0.3)' : 'var(--border-color)'};">
+              ${s.backup_enabled === '1' ? '● Auto-Backup Active' : '○ Auto-Backup Disabled'}
+            </span>
+          </div>
+
+          <form id="settings-auto-backup-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Auto-Backup Status</label>
+                <select name="backup_enabled" id="select-backup-enabled">
+                  <option value="1" ${s.backup_enabled === '1' ? 'selected' : ''}>✅ Enabled (Automated Cloud Sync)</option>
+                  <option value="0" ${s.backup_enabled !== '1' ? 'selected' : ''}>⛔ Disabled (Manual Backup Only)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label>Backup Frequency</label>
+                <select name="backup_frequency" id="select-backup-frequency">
+                  <option value="daily" ${s.backup_frequency === 'daily' || !s.backup_frequency ? 'selected' : ''}>Daily (Recommended at End of Day)</option>
+                  <option value="every_4_hours" ${s.backup_frequency === 'every_4_hours' ? 'selected' : ''}>Every 4 Hours (Best for busy restaurants)</option>
+                  <option value="every_12_hours" ${s.backup_frequency === 'every_12_hours' ? 'selected' : ''}>Every 12 Hours (Twice daily)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group" id="group-backup-time">
+                <label>Daily Auto-Backup Time</label>
+                <input type="time" name="backup_time" value="${s.backup_time || '23:00'}">
+                <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:4px;">
+                  Suggested: 11:00 PM (23:00) or when closing your cash register.
+                </span>
+              </div>
+
+              <div class="form-group">
+                <label>Backup on Application Exit</label>
+                <select name="backup_on_exit">
+                  <option value="1" ${s.backup_on_exit !== '0' ? 'selected' : ''}>Yes, backup when RestoBill is closed (Recommended)</option>
+                  <option value="0" ${s.backup_on_exit === '0' ? 'selected' : ''}>No, skip backup on close</option>
+                </select>
+                <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:4px;">
+                  Automatically saves a fresh snapshot when shutting down RestoBill at night.
+                </span>
+              </div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+              <button type="submit" class="btn btn-primary btn-sm">💾 Save Backup Schedule</button>
+            </div>
+          </form>
         </div>
 
-        <h4 style="font-size:14px;font-weight:700;margin-bottom:12px;">Available Backups</h4>
+        <!-- Snapshots / Manual Backups -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+          <div>
+            <h4 style="font-size:15px;font-weight:700;margin:0 0 2px 0;">Latest Cloud Backup Snapshot</h4>
+            <span style="font-size:12px;color:var(--text-muted);">
+              Safely keeps only the single latest verified backup in Google Drive.
+            </span>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button class="btn btn-primary btn-sm" id="btn-trigger-backup">
+              ☁️ Backup Now
+            </button>
+            <button class="btn btn-outline btn-sm" id="btn-refresh-backups">
+              🔄 Refresh
+            </button>
+          </div>
+        </div>
+
         <div id="backups-list-container">
           <p style="color:var(--text-muted);font-size:13px;">Loading backup history...</p>
         </div>
       </div>
     `;
 
+    // Bind auto backup schedule form
+    document.getElementById('settings-auto-backup-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = Object.fromEntries(formData.entries());
+      await this.saveBulk(data);
+      if (window.api.gdrive.updateSchedule) {
+        await window.api.gdrive.updateSchedule();
+      }
+      window.App.showToast('Automatic backup schedule saved successfully!', 'success');
+      this.render();
+    });
+
     // Check status
     try {
       const statusRes = await window.api.gdrive.getStatus();
       const statusBox = document.getElementById('backup-status-container');
-      const isConnected = statusRes?.success && statusRes.data?.connected;
+      const isConnected = statusRes?.success && (statusRes.data?.connected || statusRes.data?.authenticated);
 
       if (statusBox) {
         if (isConnected) {
+          const email = statusRes.data?.email || 'Authorized Google Account';
+          const lastBackup = statusRes.data?.lastBackup;
+          const lastBackupText = lastBackup?.lastBackup
+            ? window.App.formatDateTime(lastBackup.lastBackup)
+            : 'None yet';
+
           statusBox.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:space-between;">
-              <div style="display:flex;align-items:center;gap:12px;">
-                <span style="font-size:24px;">🟢</span>
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+              <div style="display:flex;align-items:center;gap:14px;">
+                <div style="width:42px;height:42px;border-radius:50%;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;font-size:22px;">
+                  🟢
+                </div>
                 <div>
-                  <strong style="color:var(--color-success);">Connected to Google Drive</strong>
-                  <p style="font-size:12px;color:var(--text-muted);">Account: ${statusRes.data.email || 'Authorized'}</p>
+                  <div style="font-weight:700;color:var(--color-success);font-size:15px;">Connected to Google Drive</div>
+                  <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Account: <b>${email}</b></div>
+                  <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Target Folder: <code>RestoBill_Backups</code> &bull; Last Backup: <b>${lastBackupText}</b></div>
                 </div>
               </div>
               <button class="btn btn-outline btn-sm btn-danger" id="btn-disconnect-gdrive">Disconnect</button>
@@ -358,18 +526,25 @@ window.SettingsUI = {
           `;
 
           document.getElementById('btn-disconnect-gdrive')?.addEventListener('click', async () => {
-            await window.api.gdrive.disconnect();
-            window.App.showToast('Google Drive disconnected', 'info');
-            this.render();
+            if (confirm('Are you sure you want to disconnect Google Drive?')) {
+              await window.api.gdrive.disconnect();
+              window.App.showToast('Google Drive disconnected', 'info');
+              this.render();
+            }
           });
         } else {
+          const hasCreds = statusRes?.data?.hasCredentials;
           statusBox.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:space-between;">
-              <div style="display:flex;align-items:center;gap:12px;">
-                <span style="font-size:24px;">⚪</span>
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+              <div style="display:flex;align-items:center;gap:14px;">
+                <div style="width:42px;height:42px;border-radius:50%;background:rgba(99,102,241,0.12);display:flex;align-items:center;justify-content:center;font-size:22px;">
+                  ☁️
+                </div>
                 <div>
-                  <strong>Not Connected to Google Drive</strong>
-                  <p style="font-size:12px;color:var(--text-muted);">Connect your Google account to enable 1-click cloud backups.</p>
+                  <div style="font-weight:700;font-size:15px;">Not Connected to Google Drive</div>
+                  <p style="font-size:12px;color:var(--text-muted);margin-top:2px;">
+                    ${hasCreds ? 'OAuth credentials found! Click Connect to authorize your Google Drive.' : 'Credentials not detected. Place credentials.json in app directory.'}
+                  </p>
                 </div>
               </div>
               <button class="btn btn-primary btn-sm" id="btn-connect-gdrive">Connect Google Drive</button>
@@ -378,12 +553,13 @@ window.SettingsUI = {
 
           document.getElementById('btn-connect-gdrive')?.addEventListener('click', async () => {
             try {
+              window.App.showToast('Opening Google authorization in your browser...', 'info');
               const urlRes = await window.api.gdrive.getAuthUrl();
               if (urlRes.success && urlRes.data) {
                 window.api.app.openExternal(urlRes.data);
                 this.promptAuthCode();
               } else {
-                window.App.showToast(urlRes.error || 'Google Drive client credentials not configured', 'warning');
+                window.App.showToast(urlRes.error || 'Google Drive client credentials not found', 'warning');
               }
             } catch (err) {
               window.App.showToast(err.message, 'error');
@@ -398,11 +574,11 @@ window.SettingsUI = {
     // Backup Now Button
     document.getElementById('btn-trigger-backup')?.addEventListener('click', async () => {
       try {
-        window.App.showToast('Creating database backup...', 'info');
+        window.App.showToast('Creating database backup to Google Drive...', 'info');
         const res = await window.api.gdrive.backup();
         if (res.success) {
           window.App.showToast('Database backed up to Google Drive successfully!', 'success');
-          this.loadBackupsList();
+          this.render();
         } else {
           window.App.showToast(res.error || 'Backup failed', 'error');
         }
@@ -427,11 +603,19 @@ window.SettingsUI = {
       if (res.success && res.data && res.data.length > 0) {
         listContainer.innerHTML = res.data.map(b => `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border-color);border-radius:var(--radius-sm);margin-bottom:8px;">
-            <div>
-              <div style="font-weight:600;color:var(--text-primary);">${b.name}</div>
-              <div style="font-size:11px;color:var(--text-muted);">${window.App.formatDateTime(b.createdTime || b.created_at)}</div>
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span style="font-size:22px;">📁</span>
+              <div>
+                <div style="font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:8px;">
+                  <span>${b.name}</span>
+                  <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:var(--color-success);font-weight:700;">LATEST</span>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                  ${window.App.formatDateTime(b.createdAt || b.createdTime || b.created_at)} &bull; Size: ${b.sizeFormatted || ''}
+                </div>
+              </div>
             </div>
-            <button class="btn btn-outline btn-sm btn-restore-backup" data-id="${b.id}">
+            <button class="btn btn-outline btn-sm btn-restore-backup" data-id="${b.id}" style="color:var(--color-primary);border-color:var(--color-primary);">
               Restore
             </button>
           </div>
@@ -440,8 +624,9 @@ window.SettingsUI = {
         listContainer.querySelectorAll('.btn-restore-backup').forEach(btn => {
           btn.onclick = async () => {
             const fileId = btn.getAttribute('data-id');
-            if (confirm('Warning: Restoring will overwrite the current database. Proceed?')) {
+            if (confirm('Warning: Restoring will overwrite the current database with this backup. Proceed?')) {
               try {
+                window.App.showToast('Restoring database from Google Drive...', 'info');
                 const r = await window.api.gdrive.restore(fileId);
                 if (r.success) {
                   window.App.showToast('Database restored! Please restart RestoBill.', 'success');
@@ -455,10 +640,10 @@ window.SettingsUI = {
           };
         });
       } else {
-        listContainer.innerHTML = `<p style="color:var(--text-muted);font-size:13px;">No backups found on Google Drive yet.</p>`;
+        listContainer.innerHTML = `<p style="color:var(--text-muted);font-size:13px;">No backups found in Google Drive yet. Click "Backup Now" above to create your first backup.</p>`;
       }
     } catch (e) {
-      listContainer.innerHTML = `<p style="color:var(--text-muted);font-size:13px;">Connect Google Drive to see backup history.</p>`;
+      listContainer.innerHTML = `<p style="color:var(--text-muted);font-size:13px;">Connect Google Drive to view backup history.</p>`;
     }
   },
 
@@ -466,12 +651,23 @@ window.SettingsUI = {
     window.App.showModal({
       title: 'Google Drive Authorization',
       bodyHtml: `
-        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
-          A browser window has opened for Google sign-in. Please sign in, allow access, and paste the authorization code below:
-        </p>
+        <div style="background:rgba(99, 102, 241, 0.1);border:1px solid rgba(99, 102, 241, 0.3);border-radius:8px;padding:14px;margin-bottom:16px;">
+          <div style="font-weight:700;font-size:13px;color:var(--accent-light);margin-bottom:6px;">
+            📌 Quick Steps to Authorize:
+          </div>
+          <ol style="font-size:12px;color:var(--text-secondary);margin:0;padding-left:18px;line-height:1.7;">
+            <li>In the browser window that just opened, log in with your Google account and click <b>Continue / Allow</b>.</li>
+            <li>Your browser will redirect to a page starting with <code>http://localhost/?code=...</code> (the page might say <i>"This site can't be reached"</i> – that is normal!).</li>
+            <li>Copy the full address from the browser's address bar (or just the code), paste it below, and click <b>Verify & Connect</b>.</li>
+          </ol>
+        </div>
+
         <div class="form-group">
-          <label>Authorization Code</label>
-          <input type="text" id="modal-gdrive-code" placeholder="Paste code here" autofocus>
+          <label style="font-weight:600;">Authorization Code or Redirected URL</label>
+          <input type="text" id="modal-gdrive-code" placeholder="Paste code or redirected URL here (e.g. http://localhost/?code=4/0A...)" style="font-size:13px;" autofocus>
+          <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:4px;">
+            💡 RestoBill will automatically extract the code if you paste the entire address bar URL.
+          </span>
         </div>
       `,
       footerButtons: [
@@ -480,19 +676,32 @@ window.SettingsUI = {
           text: 'Verify & Connect',
           className: 'btn btn-primary btn-sm',
           onClick: async () => {
-            const code = document.getElementById('modal-gdrive-code')?.value.trim();
+            let code = document.getElementById('modal-gdrive-code')?.value.trim();
             if (!code) {
-              window.App.showToast('Please paste the authorization code', 'warning');
+              window.App.showToast('Please paste the authorization code or redirected URL', 'warning');
               return;
             }
+
+            // Auto-clean if full URL is pasted
+            if (code.includes('code=')) {
+              try {
+                const parsedUrl = new URL(code.startsWith('http') ? code : `http://localhost/${code}`);
+                code = parsedUrl.searchParams.get('code') || code;
+              } catch (e) {
+                const match = code.match(/[?&]code=([^&]+)/);
+                if (match) code = decodeURIComponent(match[1]);
+              }
+            }
+
             try {
+              window.App.showToast('Verifying with Google...', 'info');
               const res = await window.api.gdrive.authenticate(code);
               if (res.success) {
                 window.App.showToast('Google Drive connected successfully!', 'success');
                 window.App.closeModal();
                 this.render();
               } else {
-                window.App.showToast(res.error || 'Authentication failed', 'error');
+                window.App.showToast(res.error || 'Authentication failed. Please verify the code and try again.', 'error');
               }
             } catch (err) {
               window.App.showToast(err.message, 'error');

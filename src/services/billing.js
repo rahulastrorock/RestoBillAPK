@@ -3,6 +3,27 @@ const { getDb } = require('../database/db');
 class BillingService {
   init() {
     this.db = getDb();
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS draft_bills (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT 'Table 1',
+        table_no TEXT DEFAULT '',
+        order_type TEXT NOT NULL DEFAULT 'dine_in',
+        customer_id INTEGER,
+        customer_name TEXT DEFAULT '',
+        customer_phone TEXT DEFAULT '',
+        customer_gstin TEXT DEFAULT '',
+        discount_type TEXT DEFAULT 'percent',
+        discount_value REAL DEFAULT 0,
+        payment_mode TEXT DEFAULT 'cash',
+        notes TEXT DEFAULT '',
+        items_json TEXT NOT NULL DEFAULT '[]',
+        subtotal REAL DEFAULT 0,
+        total REAL DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT DEFAULT (datetime('now', 'localtime'))
+      );
+    `);
   }
 
   /**
@@ -202,7 +223,7 @@ class BillingService {
    * Get orders with optional filters
    */
   getOrders(filters = {}) {
-    const { startDate, endDate, status, user_id, payment_mode, order_type, limit = 100, offset = 0 } = filters;
+    const { startDate, endDate, status, user_id, payment_mode, order_type, phone, search, limit = 100, offset = 0 } = filters;
 
     let where = ['1=1'];
     let params = [];
@@ -230,6 +251,15 @@ class BillingService {
     if (order_type) {
       where.push("order_type = ?");
       params.push(order_type);
+    }
+    if (phone && phone.trim()) {
+      where.push("customer_phone LIKE ?");
+      params.push(`%${phone.trim()}%`);
+    }
+    if (search && search.trim()) {
+      where.push("(customer_phone LIKE ? OR customer_name LIKE ? OR order_no LIKE ?)");
+      const term = `%${search.trim()}%`;
+      params.push(term, term, term);
     }
 
     params.push(limit, offset);
@@ -331,11 +361,90 @@ class BillingService {
 
     if (updates.length === 0) return true;
 
-    updates.push('updated_at = datetime("now", "localtime")');
+    updates.push("updated_at = datetime('now', 'localtime')");
     values.push(id);
 
     this.db.prepare(`UPDATE customers SET ${updates.join(', ')} WHERE id = ?`).run(...values);
     return this.db.prepare('SELECT * FROM customers WHERE id = ?').get(id);
+  }
+
+  deleteCustomer(id) {
+    const tx = this.db.transaction(() => {
+      this.db.prepare('UPDATE orders SET customer_id = NULL WHERE customer_id = ?').run(id);
+      this.db.prepare('DELETE FROM customers WHERE id = ?').run(id);
+    });
+    tx();
+    return true;
+  }
+
+  // ─── Draft Bills (Multi-table intermediate billing) ─────────────
+  getAllDrafts() {
+    return this.db.prepare('SELECT * FROM draft_bills ORDER BY updated_at DESC').all();
+  }
+
+  saveDraft(draft) {
+    const {
+      id,
+      title = 'Table 1',
+      table_no = '',
+      order_type = 'dine_in',
+      customer_id = null,
+      customer_name = '',
+      customer_phone = '',
+      customer_gstin = '',
+      discount_type = 'percent',
+      discount_value = 0,
+      payment_mode = 'cash',
+      notes = '',
+      items = [],
+      subtotal = 0,
+      total = 0
+    } = draft;
+
+    const draftId = id || `draft_${Date.now()}`;
+    const itemsJson = typeof items === 'string' ? items : JSON.stringify(items || []);
+
+    const stmt = this.db.prepare(`
+      INSERT INTO draft_bills (
+        id, title, table_no, order_type, customer_id, customer_name, customer_phone,
+        customer_gstin, discount_type, discount_value, payment_mode, notes,
+        items_json, subtotal, total, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        table_no = excluded.table_no,
+        order_type = excluded.order_type,
+        customer_id = excluded.customer_id,
+        customer_name = excluded.customer_name,
+        customer_phone = excluded.customer_phone,
+        customer_gstin = excluded.customer_gstin,
+        discount_type = excluded.discount_type,
+        discount_value = excluded.discount_value,
+        payment_mode = excluded.payment_mode,
+        notes = excluded.notes,
+        items_json = excluded.items_json,
+        subtotal = excluded.subtotal,
+        total = excluded.total,
+        updated_at = datetime('now', 'localtime')
+    `);
+
+    stmt.run(
+      draftId, title, table_no, order_type, customer_id, customer_name, customer_phone,
+      customer_gstin, discount_type, discount_value, payment_mode, notes,
+      itemsJson, subtotal, total
+    );
+
+    return this.db.prepare('SELECT * FROM draft_bills WHERE id = ?').get(draftId);
+  }
+
+  deleteDraft(id) {
+    this.db.prepare('DELETE FROM draft_bills WHERE id = ?').run(id);
+    return true;
+  }
+
+  clearAllDrafts() {
+    this.db.prepare('DELETE FROM draft_bills').run();
+    return true;
   }
 }
 

@@ -27,6 +27,8 @@ Thumbs.db
 .idea/
 *.suo
 *.ntvs*
-*.njsproj
-*.sln
-*.sw?
+# Google Drive credentials & tokens
+credentials.json
+gdrive_credentials.json
+gdrive_token.json
+last_backup.json
