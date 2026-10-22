@@ -36,11 +36,14 @@ window.POS = {
 
     const toggleBtn = document.getElementById('btn-toggle-grid-cols');
     if (toggleBtn) {
-      toggleBtn.addEventListener('click', () => {
-        const current = document.getElementById('pos-items-grid')?.classList.contains('cols-4') ? '4' : '2';
-        const next = current === '4' ? '2' : '4';
+      toggleBtn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const grid = document.getElementById('pos-items-grid');
+        const is4Cols = grid ? grid.classList.contains('cols-4') : false;
+        const next = is4Cols ? '2' : '4';
         this.setGridColumns(next);
-      });
+      };
     }
   },
 
@@ -50,13 +53,15 @@ window.POS = {
     const label = document.getElementById('grid-toggle-label');
 
     if (cols === '4') {
+      grid?.classList.remove('cols-2');
       grid?.classList.add('cols-4');
       toggleBtn?.classList.add('active');
       if (label) label.textContent = '2 Col';
-      toggleBtn?.setAttribute('title', 'Switch to 2 columns normal view');
+      toggleBtn?.setAttribute('title', 'Switch to 2 columns view');
       localStorage.setItem('restobill_pos_grid_cols', '4');
     } else {
       grid?.classList.remove('cols-4');
+      grid?.classList.add('cols-2');
       toggleBtn?.classList.remove('active');
       if (label) label.textContent = '4 Col';
       toggleBtn?.setAttribute('title', 'Switch to 4 columns compact view');
@@ -258,10 +263,38 @@ window.POS = {
       }
       if (itemsRes.success && itemsRes.data) {
         this.items = itemsRes.data;
+        this.applyCustomItemOrder();
       }
     } catch (err) {
       console.error('Failed to load menu data:', err);
       window.App.showToast('Failed to load menu data', 'error');
+    }
+  },
+
+  applyCustomItemOrder() {
+    try {
+      const savedOrder = JSON.parse(localStorage.getItem('restobill_custom_menu_order') || '[]');
+      if (Array.isArray(savedOrder) && savedOrder.length > 0) {
+        const orderMap = new Map();
+        savedOrder.forEach((id, index) => orderMap.set(Number(id), index));
+
+        this.items.sort((a, b) => {
+          const indexA = orderMap.has(Number(a.id)) ? orderMap.get(Number(a.id)) : 999999;
+          const indexB = orderMap.has(Number(b.id)) ? orderMap.get(Number(b.id)) : 999999;
+          return indexA - indexB;
+        });
+      }
+    } catch (e) {
+      console.warn('Failed to apply custom item order:', e);
+    }
+  },
+
+  saveCustomItemOrder() {
+    try {
+      const orderIds = this.items.map(item => item.id);
+      localStorage.setItem('restobill_custom_menu_order', JSON.stringify(orderIds));
+    } catch (e) {
+      console.warn('Failed to save custom item order:', e);
     }
   },
 
@@ -290,6 +323,11 @@ window.POS = {
   renderItems() {
     const grid = document.getElementById('pos-items-grid');
     if (!grid) return;
+
+    if (!grid.classList.contains('cols-4') && !grid.classList.contains('cols-2')) {
+      const savedCols = localStorage.getItem('restobill_pos_grid_cols') || '2';
+      grid.classList.add(savedCols === '4' ? 'cols-4' : 'cols-2');
+    }
 
     let filtered = this.items.filter(item => item.active === 1 || item.active === true);
 
@@ -320,9 +358,10 @@ window.POS = {
     }
 
     grid.innerHTML = filtered.map(item => `
-      <div class="pos-item-card" data-item-id="${item.id}">
+      <div class="pos-item-card" draggable="true" data-item-id="${item.id}" title="Tap to add to bill | Hold or drag to rearrange">
         <div class="item-card-top">
           <span class="item-veg-badge ${item.is_veg ? 'veg' : 'non-veg'}" title="${item.is_veg ? 'Vegetarian' : 'Non-Vegetarian'}"></span>
+          <span class="item-drag-handle" title="Hold or drag to rearrange order">⋮⋮</span>
           ${item.short_code ? `<span class="item-code">#${item.short_code}</span>` : ''}
         </div>
         <div class="item-name">${item.name}</div>
@@ -332,14 +371,160 @@ window.POS = {
       </div>
     `).join('');
 
-    // Attach click handlers
-    grid.querySelectorAll('.pos-item-card').forEach(card => {
+    // Attach drag and drop and click handlers
+    this.setupCardDragAndDrop(grid);
+  },
+
+  setupCardDragAndDrop(grid) {
+    if (!grid) return;
+    const cards = grid.querySelectorAll('.pos-item-card');
+    let draggedId = null;
+    let isDragging = false;
+    let touchTimer = null;
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    cards.forEach(card => {
+      const itemId = parseInt(card.getAttribute('data-item-id'), 10);
+
+      // --- Desktop HTML5 Drag & Drop ---
+      card.addEventListener('dragstart', (e) => {
+        draggedId = itemId;
+        isDragging = true;
+        card.classList.add('dragging');
+        e.dataTransfer.setData('text/plain', String(itemId));
+        e.dataTransfer.effectAllowed = 'move';
+      });
+
+      card.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (draggedId && draggedId !== itemId) {
+          card.classList.add('drag-over');
+        }
+      });
+
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('drag-over');
+      });
+
+      card.addEventListener('drop', (e) => {
+        e.preventDefault();
+        card.classList.remove('drag-over');
+        const srcId = parseInt(e.dataTransfer.getData('text/plain') || draggedId, 10);
+        if (srcId && srcId !== itemId) {
+          this.reorderItems(srcId, itemId);
+        }
+      });
+
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        grid.querySelectorAll('.pos-item-card').forEach(c => c.classList.remove('drag-over'));
+        setTimeout(() => { isDragging = false; draggedId = null; }, 100);
+      });
+
+      // --- Mobile Touch Drag & Drop ---
+      const handle = card.querySelector('.item-drag-handle');
+      const startTouchDrag = (touch) => {
+        isDragging = true;
+        draggedId = itemId;
+        card.classList.add('touch-dragging');
+        if (navigator.vibrate) navigator.vibrate(40);
+      };
+
+      if (handle) {
+        handle.addEventListener('touchstart', (e) => {
+          e.stopPropagation();
+          const touch = e.touches[0];
+          touchStartX = touch.clientX;
+          touchStartY = touch.clientY;
+          startTouchDrag(touch);
+        }, { passive: false });
+      }
+
+      card.addEventListener('touchstart', (e) => {
+        const touch = e.touches[0];
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+        touchTimer = setTimeout(() => {
+          startTouchDrag(touch);
+        }, 300);
+      }, { passive: true });
+
+      card.addEventListener('touchmove', (e) => {
+        const touch = e.touches[0];
+        const moveDist = Math.hypot(touch.clientX - touchStartX, touch.clientY - touchStartY);
+        if (!isDragging && moveDist > 10) {
+          if (touchTimer) clearTimeout(touchTimer);
+        }
+
+        if (isDragging) {
+          e.preventDefault();
+          const el = document.elementFromPoint(touch.clientX, touch.clientY);
+          const targetCard = el ? el.closest('.pos-item-card') : null;
+          cards.forEach(c => c.classList.remove('drag-over'));
+          if (targetCard && targetCard !== card) {
+            targetCard.classList.add('drag-over');
+          }
+        }
+      }, { passive: false });
+
+      card.addEventListener('touchend', (e) => {
+        if (touchTimer) clearTimeout(touchTimer);
+        if (isDragging && draggedId) {
+          const touch = e.changedTouches[0];
+          const el = document.elementFromPoint(touch.clientX, touch.clientY);
+          const targetCard = el ? el.closest('.pos-item-card') : null;
+          if (targetCard) {
+            const targetId = parseInt(targetCard.getAttribute('data-item-id'), 10);
+            if (targetId && targetId !== draggedId) {
+              this.reorderItems(draggedId, targetId);
+            }
+          }
+          cards.forEach(c => {
+            c.classList.remove('touch-dragging');
+            c.classList.remove('drag-over');
+          });
+          setTimeout(() => { isDragging = false; draggedId = null; }, 150);
+        }
+      }, { passive: true });
+
+      card.addEventListener('touchcancel', () => {
+        if (touchTimer) clearTimeout(touchTimer);
+        cards.forEach(c => {
+          c.classList.remove('touch-dragging');
+          c.classList.remove('drag-over');
+        });
+        setTimeout(() => { isDragging = false; draggedId = null; }, 150);
+      }, { passive: true });
+
+      // Click to add to bill (only if not dragged)
       card.addEventListener('click', () => {
-        const id = parseInt(card.getAttribute('data-item-id'), 10);
-        const item = this.items.find(i => i.id === id);
+        if (isDragging) return;
+        const item = this.items.find(i => i.id === itemId);
         if (item) this.addToCart(item);
       });
     });
+  },
+
+  reorderItems(sourceId, targetId) {
+    const srcIndex = this.items.findIndex(i => Number(i.id) === Number(sourceId));
+    const targetIndex = this.items.findIndex(i => Number(i.id) === Number(targetId));
+    if (srcIndex === -1 || targetIndex === -1 || srcIndex === targetIndex) return;
+
+    // Move item
+    const [movedItem] = this.items.splice(srcIndex, 1);
+    this.items.splice(targetIndex, 0, movedItem);
+
+    // Save custom order to localStorage
+    this.saveCustomItemOrder();
+
+    // Re-render items grid with new order
+    this.renderItems();
+
+    if (window.App?.showToast) {
+      window.App.showToast(`Arranged "${movedItem.name}"`, 'info', 1500);
+    }
   },
 
   addToCart(item) {
