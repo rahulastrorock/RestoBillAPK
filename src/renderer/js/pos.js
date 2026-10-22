@@ -508,8 +508,12 @@ window.POS = {
     if (floatingCount) floatingCount.textContent = `${totalQty} Item${totalQty === 1 ? '' : 's'}`;
     if (floatingTotal) floatingTotal.textContent = window.App.formatCurrency(finalTotal);
 
+    const posLayout = document.getElementById('pos-layout');
+    if (posLayout) {
+      posLayout.classList.toggle('has-cart', totalQty > 0);
+    }
+
     if (floatingBar) {
-      const posLayout = document.getElementById('pos-layout');
       const isViewingCart = posLayout && posLayout.classList.contains('show-cart');
       if (totalQty > 0 && !isViewingCart) {
         floatingBar.classList.remove('hidden');

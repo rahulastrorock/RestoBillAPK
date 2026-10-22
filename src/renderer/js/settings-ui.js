@@ -138,6 +138,26 @@ window.SettingsUI = {
             <button type="submit" class="btn btn-primary">Save Restaurant Details</button>
           </div>
         </form>
+
+        <!-- Biometric Fingerprint Security Section -->
+        <div style="background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:18px;margin-top:24px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <div style="width:40px;height:40px;border-radius:50%;background:rgba(249,115,22,0.12);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">
+                👆
+              </div>
+              <div>
+                <h4 style="font-size:15px;font-weight:700;margin:0 0 2px 0;">Device Fingerprint Login</h4>
+                <p style="font-size:12px;color:var(--text-muted);margin:0;">
+                  Link your Android fingerprint sensor to allow instant 1-touch login without typing passwords.
+                </p>
+              </div>
+            </div>
+            <button type="button" class="btn btn-outline btn-sm" id="btn-settings-register-bio" style="font-size:12px;display:flex;align-items:center;gap:6px;">
+              <span>👆</span> <span>Register / Manage Fingerprint</span>
+            </button>
+          </div>
+        </div>
       </div>
     `;
 
@@ -194,6 +214,10 @@ window.SettingsUI = {
       const formData = new FormData(e.target);
       const data = Object.fromEntries(formData.entries());
       this.saveBulk(data);
+    });
+
+    document.getElementById('btn-settings-register-bio')?.addEventListener('click', () => {
+      window.App.promptRegisterBiometrics();
     });
   },
 
@@ -1109,6 +1133,10 @@ window.SettingsUI = {
             this.render();
           }
         });
+      }
+    } catch (err) {
+      console.warn('Google drive status error:', err);
+    }
 
     // Backup Now Button
     document.getElementById('btn-trigger-backup')?.addEventListener('click', async () => {

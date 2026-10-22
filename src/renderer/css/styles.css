@@ -3051,7 +3051,7 @@ input:checked + .switch-slider:before {
   /* ── 1. Android Status Bar & Bottom Navigation Bar Padding ── */
   :root {
     --mobile-safe-top: max(env(safe-area-inset-top, 0px), 32px);
-    --mobile-safe-bottom: max(env(safe-area-inset-bottom, 0px), 28px);
+    --mobile-safe-bottom: max(env(safe-area-inset-bottom, 0px), 48px);
   }
 
   /* Topbar with safe padding for clock, battery, camera notch */
@@ -3121,7 +3121,7 @@ input:checked + .switch-slider:before {
     top: 0;
     left: 0;
     bottom: 0;
-    width: 275px;
+    width: 280px;
     max-width: 82vw;
     height: 100%;
     z-index: 1000;
@@ -3129,6 +3129,8 @@ input:checked + .switch-slider:before {
     transform: translateX(-100%);
     transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1);
     padding-top: var(--mobile-safe-top);
+    display: flex;
+    flex-direction: column;
   }
 
   .sidebar.mobile-open {
@@ -3137,7 +3139,7 @@ input:checked + .switch-slider:before {
 
   /* Ignore collapsed state on mobile */
   .sidebar.collapsed {
-    width: 275px !important;
+    width: 280px !important;
   }
   .sidebar.collapsed .sidebar-brand,
   .sidebar.collapsed .nav-item span,
@@ -3151,6 +3153,14 @@ input:checked + .switch-slider:before {
   }
   .sidebar.collapsed .user-info {
     justify-content: flex-start !important;
+  }
+
+  /* Sidebar footer user info & logout - elevated cleanly above Android 3-button navigation */
+  .sidebar-footer {
+    padding: 14px 16px calc(var(--mobile-safe-bottom) + 12px) 16px !important;
+    background: var(--bg-secondary) !important;
+    border-top: 1px solid var(--border-color) !important;
+    flex-shrink: 0;
   }
 
   .sidebar-backdrop {
@@ -3173,27 +3183,28 @@ input:checked + .switch-slider:before {
   .main-content {
     width: 100vw;
     min-width: 0;
-    padding-bottom: var(--mobile-safe-bottom);
+    padding-bottom: 0 !important;
   }
 
   .page-container {
-    height: calc(100vh - 54px - var(--mobile-safe-top) - var(--mobile-safe-bottom));
-    height: calc(100dvh - 54px - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+    height: calc(100vh - 54px - var(--mobile-safe-top));
+    height: calc(100dvh - 54px - var(--mobile-safe-top));
     overflow: hidden;
   }
 
   .page {
-    padding: 12px 10px calc(var(--mobile-safe-bottom) + 14px) 10px;
+    padding: 12px 10px calc(var(--mobile-safe-bottom) + 16px) 10px;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
 
   /* ── 3. POS Screen Mobile Layout ── */
   #page-pos {
-    padding: 0;
+    padding: 0 !important;
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    height: 100%;
   }
 
   .pos-mobile-nav {
@@ -3211,7 +3222,7 @@ input:checked + .switch-slider:before {
     align-items: center;
     justify-content: center;
     gap: 6px;
-    padding: 9px 12px;
+    padding: 8px 12px;
     border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     background: var(--bg-surface);
@@ -3246,27 +3257,39 @@ input:checked + .switch-slider:before {
 
   .pos-layout {
     flex: 1;
+    display: flex;
     flex-direction: column;
     position: relative;
     overflow: hidden;
     height: 100%;
   }
 
-  /* Default on mobile: Show menu, hide cart */
+  /* Menu Panel: Full screen when empty, smooth shift up when cart has items */
   .pos-layout .pos-menu-panel {
     display: flex;
+    flex-direction: column;
     width: 100%;
     border-right: none;
     flex: 1;
     overflow: hidden;
+    height: 100%;
+    padding-bottom: 0 !important;
   }
 
-  .pos-layout .pos-order-panel {
-    display: none;
-    width: 100%;
+  .pos-items-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    padding: 8px 8px calc(var(--mobile-safe-bottom) + 12px) 8px !important;
+    gap: 8px !important;
     flex: 1;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    margin-bottom: 0 !important;
+    transition: padding-bottom 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* When items are in cart, smoothly shift items up so floating bar doesn't obscure the last row */
+  .pos-layout.has-cart .pos-items-grid {
+    padding-bottom: calc(var(--mobile-safe-bottom) + 74px) !important;
   }
 
   /* When show-cart class is active: Show cart, hide menu */
@@ -3278,47 +3301,160 @@ input:checked + .switch-slider:before {
     display: flex !important;
   }
 
+  /* Current Bill: Maximized Item List Area & Bottom-Shifted Actions */
+  .pos-layout .pos-order-panel {
+    display: none;
+    width: 100%;
+    flex: 1;
+    flex-direction: column;
+    overflow: hidden;
+    height: 100%;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .pos-order-panel .order-header {
+    flex-shrink: 0;
+    padding: 6px 10px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
   .mobile-back-btn {
     display: flex !important;
     align-items: center;
     justify-content: center;
     gap: 6px;
     width: 100%;
-    margin-bottom: 8px;
-    padding: 8px;
-    font-size: 12px;
-    border-radius: var(--radius-md);
+    margin-bottom: 6px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
     background: var(--bg-surface);
     color: var(--text-primary);
     border: 1px solid var(--border-color);
   }
 
-  .pos-menu-panel {
+  .order-type-selector {
     display: flex;
-    flex-direction: column;
-    width: 100%;
-    border-right: none;
-    flex: 1;
-    overflow-y: auto;
-    -webkit-overflow-scrolling: touch;
-    padding-bottom: calc(var(--mobile-safe-bottom) + 85px) !important;
+    gap: 4px;
+    margin-bottom: 6px;
   }
 
-  .pos-items-grid {
-    grid-template-columns: repeat(2, 1fr) !important;
-    padding: 10px 8px !important;
-    gap: 8px !important;
-    padding-bottom: calc(var(--mobile-safe-bottom) + 95px) !important;
-    margin-bottom: 20px !important;
+  .order-type-btn {
+    flex: 1;
+    padding: 5px 6px;
+    font-size: 11px;
+    font-weight: 600;
   }
 
-  .pos-layout .pos-order-panel {
-    display: none;
-    width: 100%;
+  .order-meta {
+    display: flex;
+    gap: 4px;
+  }
+
+  .order-meta .input-sm {
+    height: 32px;
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  #pos-table-no {
+    width: 60px;
+    flex-shrink: 0;
+  }
+
+  /* Maximize order items list area */
+  .pos-order-panel .order-items-list {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding-bottom: calc(var(--mobile-safe-bottom) + 24px) !important;
+    padding: 6px 8px;
+  }
+
+  .order-item {
+    padding: 8px 6px;
+    margin-bottom: 6px;
+  }
+
+  .order-item-name {
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .order-item-price {
+    font-size: 12px;
+  }
+
+  .qty-btn {
+    width: 24px;
+    height: 24px;
+    font-size: 12px;
+  }
+
+  .order-item-qty {
+    min-width: 20px;
+    font-size: 12px;
+  }
+
+  /* Compact summary shifted directly to bottom */
+  .pos-order-panel .order-summary {
+    flex-shrink: 0;
+    padding: 6px 12px;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .pos-order-panel .summary-row {
+    padding: 1px 0;
+    font-size: 11px;
+  }
+
+  .pos-order-panel .summary-row.tax-row {
+    font-size: 10px;
+    padding: 0;
+  }
+
+  .pos-order-panel .summary-row.total-row {
+    padding-top: 3px;
+    margin-top: 2px;
+    font-size: 16px;
+    font-weight: 800;
+    border-top: 1px solid var(--border-color);
+  }
+
+  /* Compact action buttons pinned to bottom with safe inset */
+  .pos-order-panel .order-actions {
+    flex-shrink: 0;
+    padding: 6px 12px calc(var(--mobile-safe-bottom) + 8px) 12px !important;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+  }
+
+  .pos-order-panel .order-actions-top {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 6px;
+  }
+
+  .pos-order-panel .order-actions-top .btn {
+    padding: 5px 8px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .pos-order-panel .order-submit-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .pos-order-panel .order-submit-actions .btn {
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    border-radius: var(--radius-sm);
   }
 
   .pos-item-card {
@@ -3344,29 +3480,35 @@ input:checked + .switch-slider:before {
     font-size: 12px;
   }
 
-  /* Floating Bottom Cart Bar (Snackbar) */
+  /* Floating Bottom Cart Bar (Snackbar) - Animated and perfectly placed */
   .pos-mobile-floating-bar {
     position: fixed !important;
-    bottom: calc(var(--mobile-safe-bottom) + 10px) !important;
-    left: 14px !important;
-    right: 14px !important;
+    bottom: calc(var(--mobile-safe-bottom) + 8px) !important;
+    left: 12px !important;
+    right: 12px !important;
     background: linear-gradient(135deg, #f97316, #ea580c) !important;
     color: #ffffff !important;
-    padding: 12px 18px !important;
-    border-radius: 28px !important;
+    padding: 10px 16px !important;
+    border-radius: 22px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
-    box-shadow: 0 10px 28px rgba(234, 88, 12, 0.45) !important;
-    z-index: 150 !important;
+    box-shadow: 0 8px 24px rgba(234, 88, 12, 0.45) !important;
+    z-index: 100 !important;
     cursor: pointer !important;
     backdrop-filter: blur(12px) !important;
     -webkit-backdrop-filter: blur(12px) !important;
     border: 1px solid rgba(255, 255, 255, 0.25) !important;
+    transform: translateY(0);
+    opacity: 1;
+    transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
   }
 
   .pos-mobile-floating-bar.hidden {
-    display: none !important;
+    display: flex !important;
+    transform: translateY(140%) !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
   }
 
   .floating-bar-info {

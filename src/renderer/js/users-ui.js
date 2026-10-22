@@ -16,6 +16,10 @@ window.UsersUI = {
     if (addBtn) {
       addBtn.onclick = () => this.openAddUserModal();
     }
+    const bioBtn = document.getElementById('btn-manage-fingerprints');
+    if (bioBtn) {
+      bioBtn.onclick = () => window.App.promptRegisterBiometrics();
+    }
   },
 
   async fetchUsers() {
@@ -56,12 +60,14 @@ window.UsersUI = {
     }
 
     const currentUserId = window.App.currentUser?.id;
+    const biometrics = JSON.parse(localStorage.getItem('restobill_biometrics') || '{}');
 
     grid.innerHTML = this.users.map(user => {
       const isSelf = user.id === currentUserId;
       const role = (user.role || 'cashier').toLowerCase();
       const isActive = user.active === 1 || user.active === true;
       const initial = (user.name || user.username || 'U')[0].toUpperCase();
+      const isBioLinked = !!biometrics[user.username];
 
       const lastLoginText = user.last_login
         ? window.App.formatDateTime(user.last_login)
@@ -79,9 +85,10 @@ window.UsersUI = {
             </div>
           </div>
           <div class="user-card-body">
-            <div style="display:flex;align-items:center;gap:6px;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
               <span class="badge badge-${role}">${user.role.toUpperCase()}</span>
               <span class="badge ${isActive ? 'badge-completed' : 'badge-voided'}">${isActive ? 'Active' : 'Inactive'}</span>
+              ${isBioLinked ? `<span class="badge" style="background:rgba(249,115,22,0.15);color:var(--accent-primary);border:1px solid rgba(249,115,22,0.3);font-size:10px;padding:2px 6px;">👆 Fingerprint</span>` : ''}
             </div>
             <div class="user-card-actions">
               <button class="action-btn action-view btn-edit-user" data-id="${user.id}" title="Edit User">
@@ -90,8 +97,8 @@ window.UsersUI = {
               <button class="action-btn action-print btn-password-user" data-id="${user.id}" title="Change Password">
                 <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clip-rule="evenodd"/></svg>
               </button>
-              <button class="action-btn btn-fingerprint-user" data-username="${user.username}" title="Register Fingerprint">
-                <span style="font-size:13px;">👆</span>
+              <button class="action-btn btn-fingerprint-user ${isBioLinked ? 'action-view' : ''}" data-username="${user.username}" title="${isBioLinked ? 'Fingerprint Linked (Tap to manage)' : 'Register Fingerprint'}">
+                <span style="font-size:13px;">${isBioLinked ? '🔒' : '👆'}</span>
               </button>
               ${!isSelf ? `
                 <button class="action-btn btn-toggle-active" data-id="${user.id}" data-active="${isActive ? '1' : '0'}" title="${isActive ? 'Deactivate User' : 'Activate User'}">
