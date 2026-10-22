@@ -337,6 +337,33 @@ window.SettingsUI = {
             <!-- Left Column: Controls & Toggles -->
             <div class="printer-settings-main">
 
+              <!-- Mobile Bluetooth Thermal Printer Setup Card -->
+              <div class="printer-card" style="background: rgba(249, 115, 22, 0.06); border-color: rgba(249, 115, 22, 0.3);">
+                <div class="printer-card-header">
+                  <div class="printer-card-title">
+                    <span>📱</span>
+                    <span>Using Bluetooth Thermal Printer with Mobile</span>
+                  </div>
+                  <span class="printer-card-badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e;">Bluetooth Ready</span>
+                </div>
+                <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; padding: 4px 0;">
+                  <p style="margin-bottom: 8px; font-weight: 600; color: var(--text-primary);">
+                    Yes! Bluetooth thermal printers work seamlessly with RestoBill on your mobile phone.
+                  </p>
+                  <ol style="padding-left: 20px; margin: 0 0 10px 0;">
+                    <li style="margin-bottom: 5px;">
+                      <b>Pair with Phone:</b> Turn on your Bluetooth thermal printer, open your phone's <b>Settings &rarr; Bluetooth</b>, and pair with your printer (default PIN is usually <code>0000</code> or <code>1234</code>).
+                    </li>
+                    <li style="margin-bottom: 5px;">
+                      <b>Print Service (Recommended):</b> Install <b>RawBT Print Service</b> (free on Google Play Store). Open it once and select your paired Bluetooth printer. This adds a direct ESC/POS print driver to Android.
+                    </li>
+                    <li>
+                      <b>Ready to Print:</b> When you tap <b>"Save & Print"</b> in Billing or <b>"Test Print"</b> above, RestoBill sends the formatted 58mm/80mm receipt with logo, GST, and QR code directly to your printer!
+                    </li>
+                  </ol>
+                </div>
+              </div>
+
               <!-- 1. Printer Hardware & Connection -->
               <div class="printer-card">
                 <div class="printer-card-header">

@@ -1318,6 +1318,15 @@
       getPreview: apiCall(async (orderData, settings, type) => generateReceiptHtml(orderData, settings)),
       receipt: apiCall(async (orderData, settings) => {
         const html = generateReceiptHtml(orderData, settings);
+        const jobName = `Receipt_${orderData.order_no || Date.now()}`;
+
+        // 1. Android Native PrintManager Bridge (works with Bluetooth, Thermal, USB & System Printers)
+        if (window.AndroidPrinter && typeof window.AndroidPrinter.printHtml === 'function') {
+          window.AndroidPrinter.printHtml(html, jobName);
+          return true;
+        }
+
+        // 2. Browser fallback (iframe print)
         const printFrame = document.createElement('iframe');
         printFrame.style.position = 'fixed';
         printFrame.style.right = '0';
@@ -1332,7 +1341,9 @@
         setTimeout(() => {
           printFrame.contentWindow.focus();
           printFrame.contentWindow.print();
-          setTimeout(() => document.body.removeChild(printFrame), 2000);
+          setTimeout(() => {
+            if (document.body.contains(printFrame)) document.body.removeChild(printFrame);
+          }, 2000);
         }, 500);
         return true;
       }),
