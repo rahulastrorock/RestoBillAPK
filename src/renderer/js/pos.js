@@ -165,6 +165,50 @@ window.POS = {
         }
       }, { passive: false });
     }
+
+    // Mobile POS tab switching
+    const tabPosMenu = document.getElementById('tab-pos-menu');
+    const tabPosCart = document.getElementById('tab-pos-cart');
+    const posLayout = document.getElementById('pos-layout');
+    const floatingBar = document.getElementById('pos-mobile-floating-bar');
+
+    if (tabPosMenu) {
+      tabPosMenu.addEventListener('click', () => {
+        posLayout?.classList.remove('show-cart');
+        tabPosMenu.classList.add('active');
+        tabPosCart?.classList.remove('active');
+        if (this.cart.length > 0 && floatingBar) floatingBar.classList.remove('hidden');
+      });
+    }
+
+    if (tabPosCart) {
+      tabPosCart.addEventListener('click', () => {
+        posLayout?.classList.add('show-cart');
+        tabPosCart.classList.add('active');
+        tabPosMenu?.classList.remove('active');
+        if (floatingBar) floatingBar.classList.add('hidden');
+      });
+    }
+
+    const floatingViewCartBtn = document.getElementById('btn-floating-view-cart');
+    if (floatingViewCartBtn) {
+      floatingViewCartBtn.addEventListener('click', () => {
+        posLayout?.classList.add('show-cart');
+        tabPosCart?.classList.add('active');
+        tabPosMenu?.classList.remove('active');
+        if (floatingBar) floatingBar.classList.add('hidden');
+      });
+    }
+
+    const mobileBackBtn = document.getElementById('btn-mobile-back-menu');
+    if (mobileBackBtn) {
+      mobileBackBtn.addEventListener('click', () => {
+        posLayout?.classList.remove('show-cart');
+        tabPosMenu?.classList.add('active');
+        tabPosCart?.classList.remove('active');
+        if (this.cart.length > 0 && floatingBar) floatingBar.classList.remove('hidden');
+      });
+    }
   },
 
   async loadData() {
@@ -324,6 +368,10 @@ window.POS = {
       if (cgstEl) cgstEl.textContent = window.App.formatCurrency(0);
       if (sgstEl) sgstEl.textContent = window.App.formatCurrency(0);
       if (totalEl) totalEl.textContent = window.App.formatCurrency(0);
+      const mobileBadge = document.getElementById('mobile-cart-badge');
+      const floatingBar = document.getElementById('pos-mobile-floating-bar');
+      if (mobileBadge) mobileBadge.textContent = '0';
+      if (floatingBar) floatingBar.classList.add('hidden');
       return;
     }
 
@@ -448,6 +496,27 @@ window.POS = {
     if (cgstEl) cgstEl.textContent = window.App.formatCurrency(cgst);
     if (sgstEl) sgstEl.textContent = window.App.formatCurrency(sgst);
     if (totalEl) totalEl.textContent = window.App.formatCurrency(finalTotal);
+
+    // Update mobile cart badge & floating action bar
+    const totalQty = this.cart.reduce((sum, item) => sum + (parseFloat(item.quantity) || 1), 0);
+    const mobileBadge = document.getElementById('mobile-cart-badge');
+    const floatingBar = document.getElementById('pos-mobile-floating-bar');
+    const floatingCount = document.getElementById('floating-cart-count');
+    const floatingTotal = document.getElementById('floating-cart-total');
+
+    if (mobileBadge) mobileBadge.textContent = totalQty;
+    if (floatingCount) floatingCount.textContent = `${totalQty} Item${totalQty === 1 ? '' : 's'}`;
+    if (floatingTotal) floatingTotal.textContent = window.App.formatCurrency(finalTotal);
+
+    if (floatingBar) {
+      const posLayout = document.getElementById('pos-layout');
+      const isViewingCart = posLayout && posLayout.classList.contains('show-cart');
+      if (totalQty > 0 && !isViewingCart) {
+        floatingBar.classList.remove('hidden');
+      } else {
+        floatingBar.classList.add('hidden');
+      }
+    }
   },
 
   openItemNotesModal(index) {

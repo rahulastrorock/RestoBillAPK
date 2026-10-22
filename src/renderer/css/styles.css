@@ -3029,3 +3029,472 @@ input:checked + .switch-slider:before {
   }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   ANDROID & MOBILE RESPONSIVE STYLES (Phones & Tablets < 900px)
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Default hidden states for mobile-only elements on desktop */
+.pos-mobile-nav {
+  display: none;
+}
+.pos-mobile-floating-bar {
+  display: none;
+}
+.mobile-back-btn {
+  display: none;
+}
+.sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  /* ── 1. Android Status Bar Padding (Safe Area Insets) ── */
+  :root {
+    --mobile-safe-top: max(env(safe-area-inset-top, 0px), 32px);
+    --mobile-safe-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+  }
+
+  /* Topbar with safe padding for clock, battery, camera notch */
+  .topbar {
+    padding-top: var(--mobile-safe-top);
+    height: calc(54px + var(--mobile-safe-top));
+    padding-left: 12px;
+    padding-right: 12px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  /* Hide desktop clock & date on mobile to prevent overlapping */
+  .topbar-clock,
+  .topbar-date {
+    display: none !important;
+  }
+
+  .topbar-left {
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .page-title {
+    font-size: 16px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar-right {
+    gap: 8px;
+  }
+
+  /* Login Screen on Mobile */
+  #login-screen {
+    padding-top: var(--mobile-safe-top);
+    padding-bottom: var(--mobile-safe-bottom);
+  }
+
+  .login-container {
+    width: 100vw;
+    height: 100%;
+    border-radius: 0;
+    border: none;
+    box-shadow: none;
+    flex-direction: column;
+  }
+
+  .login-left {
+    flex: 1;
+    width: 100%;
+    padding: 30px 20px;
+    justify-content: center;
+    border-right: none;
+  }
+
+  .login-right {
+    display: none !important;
+  }
+
+  /* ── 2. Off-Canvas Drawer Navigation ── */
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 275px;
+    max-width: 82vw;
+    height: 100%;
+    z-index: 1000;
+    box-shadow: 4px 0 28px rgba(0, 0, 0, 0.7);
+    transform: translateX(-100%);
+    transition: transform 0.26s cubic-bezier(0.4, 0, 0.2, 1);
+    padding-top: var(--mobile-safe-top);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  /* Ignore collapsed state on mobile */
+  .sidebar.collapsed {
+    width: 275px !important;
+  }
+  .sidebar.collapsed .sidebar-brand,
+  .sidebar.collapsed .nav-item span,
+  .sidebar.collapsed .nav-label,
+  .sidebar.collapsed .user-details {
+    display: block !important;
+  }
+  .sidebar.collapsed .nav-item {
+    justify-content: flex-start !important;
+    padding: 10px 16px !important;
+  }
+  .sidebar.collapsed .user-info {
+    justify-content: flex-start !important;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.65);
+    backdrop-filter: blur(2px);
+    z-index: 999;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+
+  .sidebar-backdrop.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .main-content {
+    width: 100vw;
+    min-width: 0;
+  }
+
+  .page-container {
+    height: calc(100vh - 54px - var(--mobile-safe-top));
+    overflow: hidden;
+  }
+
+  .page {
+    padding: 12px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ── 3. POS Screen Mobile Layout ── */
+  #page-pos {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .pos-mobile-nav {
+    display: flex;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    padding: 6px 10px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .pos-mobile-tab {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 12px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    transition: var(--transition-fast);
+  }
+
+  .pos-mobile-tab.active {
+    background: var(--accent-primary);
+    color: #ffffff;
+    border-color: var(--accent-primary);
+    box-shadow: 0 2px 8px var(--accent-primary-glow);
+  }
+
+  .pos-mobile-tab.active svg {
+    color: #ffffff;
+  }
+
+  .pos-cart-badge {
+    background: rgba(255, 255, 255, 0.28);
+    color: #ffffff;
+    padding: 1px 7px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 18px;
+    text-align: center;
+  }
+
+  .pos-layout {
+    flex: 1;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+    height: 100%;
+  }
+
+  /* Default on mobile: Show menu, hide cart */
+  .pos-layout .pos-menu-panel {
+    display: flex;
+    width: 100%;
+    border-right: none;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .pos-layout .pos-order-panel {
+    display: none;
+    width: 100%;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* When show-cart class is active: Show cart, hide menu */
+  .pos-layout.show-cart .pos-menu-panel {
+    display: none !important;
+  }
+
+  .pos-layout.show-cart .pos-order-panel {
+    display: flex !important;
+  }
+
+  .mobile-back-btn {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    margin-bottom: 8px;
+    padding: 8px;
+    font-size: 12px;
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+  }
+
+  .pos-items-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    padding: 10px !important;
+    gap: 8px !important;
+  }
+
+  .pos-item-card {
+    min-height: 90px;
+    padding: 10px;
+  }
+
+  .pos-item-card .item-name {
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+
+  .pos-item-card .item-price {
+    font-size: 14px;
+  }
+
+  .pos-categories-wrapper {
+    padding: 4px 6px;
+  }
+
+  .category-tab {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+
+  /* Floating Bottom Cart Bar */
+  .pos-mobile-floating-bar {
+    position: fixed;
+    bottom: max(env(safe-area-inset-bottom, 0px), 12px);
+    left: 12px;
+    right: 12px;
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    color: #ffffff;
+    padding: 10px 14px;
+    border-radius: var(--radius-lg);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: 0 8px 24px rgba(249, 115, 22, 0.45);
+    z-index: 80;
+    cursor: pointer;
+  }
+
+  .pos-mobile-floating-bar.hidden {
+    display: none !important;
+  }
+
+  .floating-bar-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .floating-bar-count {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.9;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .floating-bar-total {
+    font-size: 17px;
+    font-weight: 800;
+  }
+
+  .btn-floating-cart-action {
+    background: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    padding: 7px 14px;
+    border-radius: var(--radius-md);
+    font-weight: 700;
+    font-size: 13px;
+  }
+
+  /* ── 4. Settings Screen Mobile ── */
+  .settings-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .settings-tabs {
+    display: flex !important;
+    overflow-x: auto !important;
+    white-space: nowrap !important;
+    flex-wrap: nowrap !important;
+    padding: 4px 0 10px 0 !important;
+    gap: 8px !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    border-bottom: 1px solid var(--border-color);
+  }
+
+  .settings-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .settings-tab {
+    flex-shrink: 0 !important;
+    padding: 8px 14px !important;
+    font-size: 13px !important;
+    border-radius: 20px !important;
+  }
+
+  .settings-content {
+    padding: 0 !important;
+  }
+
+  .settings-card,
+  .settings-section-card {
+    padding: 14px !important;
+    margin-bottom: 14px !important;
+    border-radius: var(--radius-md) !important;
+  }
+
+  .settings-grid,
+  .form-row {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* ── 5. Analytics Dashboard Mobile ── */
+  .dashboard-stats,
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  .stat-card {
+    padding: 12px !important;
+  }
+
+  .stat-card .stat-value {
+    font-size: 20px !important;
+  }
+
+  .stat-card .stat-label {
+    font-size: 11px !important;
+  }
+
+  .charts-grid,
+  .dashboard-charts {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+
+  /* ── 6. Menu Management & Tables Mobile ── */
+  .page-header {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .page-header-left,
+  .page-header-right {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start !important;
+    gap: 8px;
+  }
+
+  .tab-group {
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+    padding-bottom: 4px;
+  }
+
+  .table-container,
+  .data-table-wrapper {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+  }
+
+  .data-table {
+    min-width: 580px;
+  }
+
+  /* ── 7. Modals on Mobile ── */
+  .modal {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    max-height: 88vh !important;
+    margin: auto;
+  }
+
+  .modal-body {
+    max-height: 65vh;
+    overflow-y: auto;
+    padding: 16px;
+  }
+
+  .detail-panel {
+    width: 100vw !important;
+    max-width: 100vw !important;
+  }
+}
+

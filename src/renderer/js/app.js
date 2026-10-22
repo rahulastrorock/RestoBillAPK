@@ -94,15 +94,26 @@ window.App = {
         e.preventDefault();
         const page = item.getAttribute('data-page');
         if (page) this.navigate(page);
+        this.closeMobileSidebar();
       });
     });
 
-    // Sidebar toggle
+    // Sidebar toggle (desktop collapse & mobile drawer toggle)
     const toggleSidebarBtn = document.getElementById('btn-toggle-sidebar');
     if (toggleSidebarBtn) {
       toggleSidebarBtn.addEventListener('click', () => {
-        document.getElementById('sidebar')?.classList.toggle('collapsed');
+        if (window.innerWidth <= 900) {
+          this.toggleMobileSidebar();
+        } else {
+          document.getElementById('sidebar')?.classList.toggle('collapsed');
+        }
       });
+    }
+
+    // Sidebar backdrop for mobile
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+    if (sidebarBackdrop) {
+      sidebarBackdrop.addEventListener('click', () => this.closeMobileSidebar());
     }
 
     // Modal close button
@@ -456,6 +467,23 @@ window.App = {
     } else if (pageId === 'settings' && window.SettingsUI?.load) {
       window.SettingsUI.load();
     }
+  },
+
+  toggleMobileSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (sidebar) {
+      sidebar.classList.toggle('mobile-open');
+      const isOpen = sidebar.classList.contains('mobile-open');
+      backdrop?.classList.toggle('active', isOpen);
+    }
+  },
+
+  closeMobileSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (sidebar) sidebar.classList.remove('mobile-open');
+    if (backdrop) backdrop.classList.remove('active');
   },
 
   // ─── Modal Dialog Management ─────────────────────────────────────
