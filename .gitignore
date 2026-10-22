@@ -32,3 +32,6 @@ credentials.json
 gdrive_credentials.json
 gdrive_token.json
 last_backup.json
+
+desktop_source_backup/
+
