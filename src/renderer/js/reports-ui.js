@@ -9,6 +9,8 @@ window.ReportsUI = {
   endDate: '',
   currentData: null,
 
+  listenersAttached: false,
+
   async load() {
     this.setupDefaultDates();
     this.setupEventListeners();
@@ -16,6 +18,7 @@ window.ReportsUI = {
   },
 
   setupDefaultDates() {
+    const getLocal = (d) => (window.App?.getLocalDateString ? window.App.getLocalDateString(d) : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
     const today = new Date();
     const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
 
@@ -23,17 +26,20 @@ window.ReportsUI = {
     const endInput = document.getElementById('report-end-date');
 
     if (startInput && !startInput.value) {
-      startInput.value = firstDay.toISOString().slice(0, 10);
+      startInput.value = getLocal(firstDay);
     }
     if (endInput && !endInput.value) {
-      endInput.value = today.toISOString().slice(0, 10);
+      endInput.value = getLocal(today);
     }
 
-    this.startDate = startInput?.value || '';
-    this.endDate = endInput?.value || '';
+    this.startDate = startInput?.value || getLocal(firstDay);
+    this.endDate = endInput?.value || getLocal(today);
   },
 
   setupEventListeners() {
+    if (this.listenersAttached) return;
+    this.listenersAttached = true;
+
     // Report tab switching
     document.querySelectorAll('#page-reports .tab-btn').forEach(btn => {
       btn.onclick = () => {
@@ -386,7 +392,7 @@ window.ReportsUI = {
   },
 
   openAddExpenseModal() {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = (window.App?.getLocalDateString ? window.App.getLocalDateString() : null) || `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
 
     window.App.showModal({
       title: 'Record Business Expense',

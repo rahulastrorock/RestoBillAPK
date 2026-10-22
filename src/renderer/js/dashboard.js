@@ -113,12 +113,13 @@ window.Dashboard = {
 
     // 1. Sales Trend Chart (Last 7 Days)
     try {
+      const getLocalDate = (d) => (window.App?.getLocalDateString ? window.App.getLocalDateString(d) : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
       const today = new Date();
       const past7 = new Date();
       past7.setDate(today.getDate() - 6);
 
-      const startDate = past7.toISOString().slice(0, 10);
-      const endDate = today.toISOString().slice(0, 10);
+      const startDate = getLocalDate(past7);
+      const endDate = getLocalDate(today);
 
       const res = await window.api.reports.salesReport(startDate, endDate);
       if (res.success && res.data) {
@@ -132,13 +133,13 @@ window.Dashboard = {
         for (let i = 6; i >= 0; i--) {
           const d = new Date();
           d.setDate(today.getDate() - i);
-          const dateStr = d.toISOString().slice(0, 10);
+          const dateStr = getLocalDate(d);
           const label = d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric' });
           labels.push(label);
 
           const found = dailySales.find(s => s.date === dateStr);
           revenues.push(found ? found.revenue : 0);
-          orders.push(found ? found.orders : 0);
+          orders.push(found ? (found.orders || found.order_count || 0) : 0);
         }
 
         const ctxTrend = document.getElementById('chart-sales-trend');
@@ -218,7 +219,7 @@ window.Dashboard = {
       if (res.success && res.data) {
         const hourlyData = res.data;
         const labels = hourlyData.map(h => `${h.hour}:00`);
-        const orders = hourlyData.map(h => h.orders);
+        const orders = hourlyData.map(h => h.orders || h.count || 0);
 
         const ctxHourly = document.getElementById('chart-hourly');
         if (ctxHourly) {

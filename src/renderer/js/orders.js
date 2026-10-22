@@ -15,28 +15,46 @@ window.OrdersUI = {
     limit: 50
   },
 
+  listenersAttached: false,
+
   async load() {
     this.setupDefaultDates();
     this.setupEventListeners();
     await this.fetchOrders();
   },
 
+  getLocalDate(d = new Date()) {
+    if (window.App?.getLocalDateString) return window.App.getLocalDateString(d);
+    const dateObj = (d instanceof Date) ? d : new Date(d);
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  },
+
   setupDefaultDates() {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = this.getLocalDate();
     const startInput = document.getElementById('orders-start-date');
     const endInput = document.getElementById('orders-end-date');
 
-    if (startInput && !startInput.value) {
-      startInput.value = today;
-      this.filters.startDate = today;
+    if (startInput) {
+      if (!startInput.value) {
+        startInput.value = today;
+      }
+      this.filters.startDate = startInput.value;
     }
-    if (endInput && !endInput.value) {
-      endInput.value = today;
-      this.filters.endDate = today;
+    if (endInput) {
+      if (!endInput.value) {
+        endInput.value = today;
+      }
+      this.filters.endDate = endInput.value;
     }
   },
 
   setupEventListeners() {
+    if (this.listenersAttached) return;
+    this.listenersAttached = true;
+
     // Phone search input (filters on keystroke debounce and Enter)
     const phoneInput = document.getElementById('orders-search-phone');
     if (phoneInput) {
@@ -96,7 +114,7 @@ window.OrdersUI = {
     const resetBtn = document.getElementById('btn-reset-orders');
     if (resetBtn) {
       resetBtn.onclick = () => {
-        const today = new Date().toISOString().slice(0, 10);
+        const today = this.getLocalDate();
         const phoneEl = document.getElementById('orders-search-phone');
         const startEl = document.getElementById('orders-start-date');
         const endEl = document.getElementById('orders-end-date');

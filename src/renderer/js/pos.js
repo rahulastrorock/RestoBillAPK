@@ -761,9 +761,9 @@ window.POS = {
       customer_id: this.customerId || null,
       customer_name: customerName,
       customer_phone: customerPhone,
-      customer_gstin: this.customerGstin,
-      user_id: window.App.currentUser.id,
-      user_name: window.App.currentUser.name || window.App.currentUser.username,
+      customer_gstin: this.customerGstin || '',
+      user_id: window.App.currentUser?.id || 1,
+      user_name: window.App.currentUser?.name || window.App.currentUser?.username || 'Admin',
       discount_type: this.discount.type,
       discount_value: this.discount.value,
       payment_mode: this.paymentMode,
@@ -794,6 +794,14 @@ window.POS = {
         }
 
         this.clearOrder();
+
+        // Refresh Orders and Dashboard background data
+        if (window.OrdersUI?.fetchOrders) {
+          window.OrdersUI.fetchOrders().catch(() => {});
+        }
+        if (window.Dashboard?.load) {
+          window.Dashboard.load().catch(() => {});
+        }
       } else {
         window.App.showToast(res.error || 'Failed to create order', 'error');
       }

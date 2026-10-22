@@ -68,6 +68,32 @@
     }, 250);
   }
 
+  function getLocalDateString(d = new Date()) {
+    const dateObj = (d instanceof Date) ? d : new Date(d);
+    const year = dateObj.getFullYear();
+    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+    const day = String(dateObj.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  function sanitizeVal(v) {
+    if (v === undefined || v === null) return null;
+    return v;
+  }
+
+  function sanitizeParams(params) {
+    if (!params || params.length === 0) return [];
+    if (params.length === 1 && params[0] !== null && typeof params[0] === 'object' && !Array.isArray(params[0])) {
+      const obj = {};
+      for (const [k, v] of Object.entries(params[0])) {
+        obj[k] = sanitizeVal(v);
+      }
+      return obj;
+    }
+    const flattened = (params.length === 1 && Array.isArray(params[0])) ? params[0] : params;
+    return flattened.map(p => sanitizeVal(p));
+  }
+
   // ─── SQLite DB Wrapper ───────────────────────────────────────────
   class DatabaseWrapper {
     constructor(rawDb) {
@@ -78,11 +104,13 @@
       const self = this;
       return {
         all(...params) {
-          const flattened = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+          const clean = sanitizeParams(params);
           let stmt;
           try {
             stmt = self.raw.prepare(sql);
-            if (flattened.length > 0) stmt.bind(flattened);
+            if ((Array.isArray(clean) && clean.length > 0) || (!Array.isArray(clean) && Object.keys(clean).length > 0)) {
+              stmt.bind(clean);
+            }
             const rows = [];
             while (stmt.step()) {
               rows.push(stmt.getAsObject());
@@ -93,11 +121,13 @@
           }
         },
         get(...params) {
-          const flattened = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
+          const clean = sanitizeParams(params);
           let stmt;
           try {
             stmt = self.raw.prepare(sql);
-            if (flattened.length > 0) stmt.bind(flattened);
+            if ((Array.isArray(clean) && clean.length > 0) || (!Array.isArray(clean) && Object.keys(clean).length > 0)) {
+              stmt.bind(clean);
+            }
             let result = null;
             if (stmt.step()) {
               result = stmt.getAsObject();
@@ -108,8 +138,12 @@
           }
         },
         run(...params) {
-          const flattened = params.length === 1 && Array.isArray(params[0]) ? params[0] : params;
-          self.raw.run(sql, flattened);
+          const clean = sanitizeParams(params);
+          if ((Array.isArray(clean) && clean.length > 0) || (!Array.isArray(clean) && Object.keys(clean).length > 0)) {
+            self.raw.run(sql, clean);
+          } else {
+            self.raw.run(sql);
+          }
           const resId = self.raw.exec('SELECT last_insert_rowid() AS id;');
           const lastInsertRowid = resId[0]?.values[0]?.[0] || 0;
           const resChanges = self.raw.exec('SELECT changes() AS changes;');
@@ -942,80 +976,257 @@
     // ── Reports ───────────────────────────────────────────────────
     reports: {
       dailySummary: apiCall(async (date) => {
-        const target = date || new Date().toISOString().slice(0, 10);
-        const sales = db.prepare(`
-          SELECT COUNT(*) as total_orders, COALESCE(SUM(total), 0) as total_revenue,
-                 COALESCE(SUM(cgst), 0) as total_cgst, COALESCE(SUM(sgst), 0) as total_sgst,
-                 COALESCE(SUM(discount_amount), 0) as total_discount, COALESCE(AVG(total), 0) as avg_order_value
-          FROM orders WHERE date(created_at) = date(?) AND status = 'completed'
-        `).get(target);
+        const targetDate = date || getLocalDateString();
 
-        const voided = db.prepare("SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as amount FROM orders WHERE date(created_at) = date(?) AND status = 'voided'").get(target);
-        const payments = db.prepare("SELECT payment_mode, COUNT(*) as count, COALESCE(SUM(total), 0) as amount FROM orders WHERE date(created_at) = date(?) AND status = 'completed' GROUP BY payment_mode").all(target);
-        const orderTypes = db.prepare("SELECT order_type, COUNT(*) as count, COALESCE(SUM(total), 0) as amount FROM orders WHERE date(created_at) = date(?) AND status = 'completed' GROUP BY order_type").all(target);
+        // Total sales
+        const sales = db.prepare(`
+          SELECT 
+            COUNT(*) as total_orders,
+            COALESCE(SUM(total), 0) as total_revenue,
+            COALESCE(SUM(cgst), 0) as total_cgst,
+            COALESCE(SUM(sgst), 0) as total_sgst,
+            COALESCE(SUM(discount_amount), 0) as total_discount,
+            COALESCE(AVG(total), 0) as avg_order_value
+          FROM orders 
+          WHERE date(created_at) = date(?) AND status = 'completed'
+        `).get(targetDate) || {};
+
+        // Voided orders
+        const voided = db.prepare(`
+          SELECT COUNT(*) as count, COALESCE(SUM(total), 0) as amount
+          FROM orders 
+          WHERE date(created_at) = date(?) AND status = 'voided'
+        `).get(targetDate) || { count: 0, amount: 0 };
+
+        // Payment breakdown
+        const payments = db.prepare(`
+          SELECT payment_mode, COUNT(*) as count, COALESCE(SUM(total), 0) as amount
+          FROM orders 
+          WHERE date(created_at) = date(?) AND status = 'completed'
+          GROUP BY payment_mode
+        `).all(targetDate) || [];
+
+        // Order type breakdown
+        const orderTypes = db.prepare(`
+          SELECT order_type, COUNT(*) as count, COALESCE(SUM(total), 0) as amount
+          FROM orders 
+          WHERE date(created_at) = date(?) AND status = 'completed'
+          GROUP BY order_type
+        `).all(targetDate) || [];
+
+        // Top 5 items today
         const topItems = db.prepare(`
           SELECT oi.name, SUM(oi.quantity) as total_qty, SUM(oi.total) as total_amount
-          FROM order_items oi JOIN orders o ON oi.order_id = o.id
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
           WHERE date(o.created_at) = date(?) AND o.status = 'completed'
-          GROUP BY oi.name ORDER BY total_qty DESC LIMIT 5
-        `).all(target);
+          GROUP BY oi.name
+          ORDER BY total_qty DESC
+          LIMIT 5
+        `).all(targetDate) || [];
 
-        return { ...sales, voided, payments, orderTypes, topItems, date: target };
+        // Today's expenses
+        const expenses = db.prepare(`
+          SELECT COALESCE(SUM(amount), 0) as total
+          FROM expenses WHERE date = ?
+        `).get(targetDate) || { total: 0 };
+
+        // Comparison with yesterday
+        const yesterdayObj = new Date(targetDate);
+        yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+        const yesterdayStr = getLocalDateString(yesterdayObj);
+
+        const yesterdaySales = db.prepare(`
+          SELECT COALESCE(SUM(total), 0) as total_revenue, COUNT(*) as total_orders
+          FROM orders 
+          WHERE date(created_at) = date(?) AND status = 'completed'
+        `).get(yesterdayStr) || { total_revenue: 0, total_orders: 0 };
+
+        const totalRevenue = Number(sales.total_revenue || 0);
+        const totalOrders = Number(sales.total_orders || 0);
+        const yestRevenue = Number(yesterdaySales.total_revenue || 0);
+        const yestOrders = Number(yesterdaySales.total_orders || 0);
+        const expensesTotal = Number(expenses.total || 0);
+
+        return {
+          date: targetDate,
+          sales: {
+            total_orders: totalOrders,
+            total_revenue: totalRevenue,
+            total_cgst: Number(sales.total_cgst || 0),
+            total_sgst: Number(sales.total_sgst || 0),
+            total_discount: Number(sales.total_discount || 0),
+            avg_order_value: Math.round(Number(sales.avg_order_value || 0) * 100) / 100
+          },
+          comparison: {
+            yesterday_revenue: yestRevenue,
+            yesterday_orders: yestOrders,
+            revenue_change: totalRevenue - yestRevenue,
+            order_change: totalOrders - yestOrders
+          },
+          voided,
+          payments,
+          orderTypes,
+          topItems,
+          expenses: expensesTotal,
+          netRevenue: totalRevenue - expensesTotal
+        };
       }),
 
       salesReport: apiCall(async (startDate, endDate) => {
-        return db.prepare(`
-          SELECT date(created_at) as date, COUNT(*) as order_count, SUM(total) as revenue,
-                 SUM(taxable_amount) as taxable, SUM(cgst) as cgst, SUM(sgst) as sgst, SUM(discount_amount) as discount
-          FROM orders WHERE date(created_at) >= date(?) AND date(created_at) <= date(?) AND status = 'completed'
-          GROUP BY date(created_at) ORDER BY date ASC
-        `).all(startDate, endDate);
+        const dailySales = db.prepare(`
+          SELECT 
+            date(created_at) as date,
+            COUNT(*) as orders,
+            COALESCE(SUM(total), 0) as revenue,
+            COALESCE(SUM(cgst + sgst), 0) as gst_collected,
+            COALESCE(SUM(discount_amount), 0) as discounts,
+            COALESCE(AVG(total), 0) as avg_order
+          FROM orders 
+          WHERE date(created_at) >= date(?) AND date(created_at) <= date(?) AND status = 'completed'
+          GROUP BY date(created_at)
+          ORDER BY date(created_at) ASC
+        `).all(startDate, endDate) || [];
+
+        const totals = db.prepare(`
+          SELECT 
+            COUNT(*) as total_orders,
+            COALESCE(SUM(total), 0) as total_revenue,
+            COALESCE(SUM(cgst), 0) as total_cgst,
+            COALESCE(SUM(sgst), 0) as total_sgst,
+            COALESCE(SUM(discount_amount), 0) as total_discounts,
+            COALESCE(AVG(total), 0) as avg_order_value
+          FROM orders 
+          WHERE date(created_at) >= date(?) AND date(created_at) <= date(?) AND status = 'completed'
+        `).get(startDate, endDate) || {};
+
+        return { dailySales, totals };
       }),
 
       gstReport: apiCall(async (startDate, endDate) => {
-        return db.prepare(`
-          SELECT o.order_no, o.created_at, o.customer_name, o.customer_gstin,
-                 o.taxable_amount, o.cgst, o.sgst, (o.cgst + o.sgst) as total_gst, o.total
-          FROM orders o WHERE date(o.created_at) >= date(?) AND date(o.created_at) <= date(?) AND o.status = 'completed'
-          ORDER BY o.created_at ASC
-        `).all(startDate, endDate);
+        // GST summary by rate
+        const byRate = db.prepare(`
+          SELECT 
+            oi.gst_rate,
+            COUNT(DISTINCT o.id) as invoice_count,
+            COALESCE(SUM(oi.taxable_amount), 0) as taxable_value,
+            COALESCE(SUM(oi.cgst), 0) as cgst,
+            COALESCE(SUM(oi.sgst), 0) as sgst,
+            COALESCE(SUM(oi.cgst + oi.sgst), 0) as total_tax,
+            COALESCE(SUM(oi.total), 0) as total_value
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
+          WHERE date(o.created_at) >= date(?) AND date(o.created_at) <= date(?) AND o.status = 'completed'
+          GROUP BY oi.gst_rate
+          ORDER BY oi.gst_rate ASC
+        `).all(startDate, endDate) || [];
+
+        // HSN-wise summary
+        const byHsn = db.prepare(`
+          SELECT 
+            COALESCE(mi.hsn_sac, '996331') as hsn_sac,
+            oi.gst_rate,
+            COALESCE(SUM(oi.quantity), 0) as total_quantity,
+            COALESCE(SUM(oi.taxable_amount), 0) as taxable_value,
+            COALESCE(SUM(oi.cgst), 0) as cgst,
+            COALESCE(SUM(oi.sgst), 0) as sgst,
+            COALESCE(SUM(oi.total), 0) as total_value
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
+          LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
+          WHERE date(o.created_at) >= date(?) AND date(o.created_at) <= date(?) AND o.status = 'completed'
+          GROUP BY mi.hsn_sac, oi.gst_rate
+          ORDER BY mi.hsn_sac ASC
+        `).all(startDate, endDate) || [];
+
+        // B2B invoices (with customer GSTIN)
+        const b2bInvoices = db.prepare(`
+          SELECT 
+            order_no, created_at, customer_name, customer_gstin,
+            taxable_amount, cgst, sgst, total
+          FROM orders 
+          WHERE date(created_at) >= date(?) AND date(created_at) <= date(?) 
+            AND status = 'completed' 
+            AND customer_gstin != '' AND customer_gstin IS NOT NULL
+          ORDER BY created_at ASC
+        `).all(startDate, endDate) || [];
+
+        // Overall totals
+        const totals = db.prepare(`
+          SELECT 
+            COUNT(*) as total_invoices,
+            COALESCE(SUM(taxable_amount), 0) as total_taxable,
+            COALESCE(SUM(cgst), 0) as total_cgst,
+            COALESCE(SUM(sgst), 0) as total_sgst,
+            COALESCE(SUM(cgst + sgst), 0) as total_gst,
+            COALESCE(SUM(total), 0) as total_value
+          FROM orders 
+          WHERE date(created_at) >= date(?) AND date(created_at) <= date(?) AND status = 'completed'
+        `).get(startDate, endDate) || {};
+
+        return { byRate, byHsn, b2bInvoices, totals };
       }),
 
       topItems: apiCall(async (startDate, endDate, limit = 10) => {
         return db.prepare(`
-          SELECT oi.name, SUM(oi.quantity) as quantity, SUM(oi.total) as revenue
-          FROM order_items oi JOIN orders o ON oi.order_id = o.id
+          SELECT 
+            oi.name,
+            oi.menu_item_id,
+            SUM(oi.quantity) as total_qty,
+            SUM(oi.total) as total_amount,
+            COUNT(DISTINCT oi.order_id) as order_count,
+            AVG(oi.price) as avg_price
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
           WHERE date(o.created_at) >= date(?) AND date(o.created_at) <= date(?) AND o.status = 'completed'
-          GROUP BY oi.name ORDER BY quantity DESC LIMIT ?
-        `).all(startDate, endDate, limit);
+          GROUP BY oi.name
+          ORDER BY total_qty DESC
+          LIMIT ?
+        `).all(startDate, endDate, limit) || [];
       }),
 
       categoryWiseSales: apiCall(async (startDate, endDate) => {
         return db.prepare(`
-          SELECT c.name as category, SUM(oi.quantity) as total_quantity, SUM(oi.total) as total_amount
+          SELECT 
+            COALESCE(c.name, 'Uncategorized') as category_name,
+            SUM(oi.quantity) as total_qty,
+            SUM(oi.total) as total_amount,
+            COUNT(DISTINCT oi.order_id) as order_count
           FROM order_items oi
-          JOIN menu_items mi ON oi.menu_item_id = mi.id
-          JOIN categories c ON mi.category_id = c.id
           JOIN orders o ON oi.order_id = o.id
+          LEFT JOIN menu_items mi ON oi.menu_item_id = mi.id
+          LEFT JOIN categories c ON mi.category_id = c.id
           WHERE date(o.created_at) >= date(?) AND date(o.created_at) <= date(?) AND o.status = 'completed'
-          GROUP BY c.name ORDER BY total_amount DESC
-        `).all(startDate, endDate);
+          GROUP BY c.name
+          ORDER BY total_amount DESC
+        `).all(startDate, endDate) || [];
       }),
 
       hourlyDistribution: apiCall(async (date) => {
+        const target = date || getLocalDateString();
         return db.prepare(`
-          SELECT strftime('%H', created_at) as hour, COUNT(*) as count, SUM(total) as amount
-          FROM orders WHERE date(created_at) = date(?) AND status = 'completed'
-          GROUP BY hour ORDER BY hour ASC
-        `).all(date);
+          SELECT 
+            strftime('%H', created_at) as hour,
+            COUNT(*) as orders,
+            COALESCE(SUM(total), 0) as revenue
+          FROM orders 
+          WHERE date(created_at) = date(?) AND status = 'completed'
+          GROUP BY strftime('%H', created_at)
+          ORDER BY hour ASC
+        `).all(target) || [];
       }),
 
       paymentModeBreakdown: apiCall(async (startDate, endDate) => {
         return db.prepare(`
-          SELECT payment_mode, COUNT(*) as count, SUM(total) as amount
-          FROM orders WHERE date(created_at) >= date(?) AND date(created_at) <= date(?) AND status = 'completed'
+          SELECT 
+            payment_mode,
+            COUNT(*) as count,
+            COALESCE(SUM(total), 0) as amount
+          FROM orders 
+          WHERE date(created_at) >= date(?) AND date(created_at) <= date(?) AND status = 'completed'
           GROUP BY payment_mode
-        `).all(startDate, endDate);
+          ORDER BY amount DESC
+        `).all(startDate, endDate) || [];
       }),
     },
 
@@ -1030,7 +1241,7 @@
       add: apiCall(async (data) => {
         const { category = 'General', description = '', amount, date, user_id = 1, user_name = 'Admin' } = data;
         const res = db.prepare('INSERT INTO expenses (category, description, amount, date, user_id, user_name) VALUES (?, ?, ?, ?, ?, ?)')
-          .run(category, description, parseFloat(amount), date || new Date().toISOString().slice(0, 10), user_id, user_name);
+          .run(category, description, parseFloat(amount), date || getLocalDateString(), user_id, user_name);
         return db.prepare('SELECT * FROM expenses WHERE id = ?').get(res.lastInsertRowid);
       }),
       delete: apiCall(async (id) => {
@@ -1299,7 +1510,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `restobill_${type}_${new Date().toISOString().slice(0, 10)}.csv`;
+        a.download = `restobill_${type}_${getLocalDateString()}.csv`;
         a.click();
         URL.revokeObjectURL(url);
         return 'Downloaded';
@@ -1317,7 +1528,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `restobill_backup_${new Date().toISOString().slice(0, 10)}.db`;
+        a.download = `restobill_backup_${getLocalDateString()}.db`;
         a.click();
         URL.revokeObjectURL(url);
         return true;
