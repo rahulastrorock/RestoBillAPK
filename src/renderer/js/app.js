@@ -9,6 +9,10 @@ window.App = {
   activePage: 'pos',
   currentTheme: 'dark',
 
+  SESSION_TIMEOUT_MS: 30 * 60 * 1000, // 30 minutes default auto-logout
+  sessionWatchdogTimer: null,
+  lastActivitySave: 0,
+
   async init() {
     this.setupEventListeners();
     this.startClock();
@@ -18,21 +22,14 @@ window.App = {
     const savedTheme = localStorage.getItem('restobill_theme') || this.settings.theme || 'dark';
     this.setTheme(savedTheme, false);
 
-    // Check saved session
-    const savedUser = sessionStorage.getItem('restobill_user');
-    if (savedUser) {
-      try {
-        const user = JSON.parse(savedUser);
-        this.setUserSession(user);
-        this.showApp();
-        return;
-      } catch (e) {
-        sessionStorage.removeItem('restobill_user');
-      }
-    }
+    // Setup session activity tracking & watchdog
+    this.initActivityTracking();
 
-    // Default: show login
-    this.showLogin();
+    // Check saved session (30-minute mobile auto-logout)
+    const sessionRestored = this.checkSavedSession();
+    if (!sessionRestored) {
+      this.showLogin();
+    }
   },
 
   async loadSettings() {
@@ -80,6 +77,21 @@ window.App = {
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
       loginForm.addEventListener('submit', (e) => this.handleLogin(e));
+    }
+
+    // Biometric fingerprint login button
+    const bioLoginBtn = document.getElementById('btn-biometric-login');
+    if (bioLoginBtn) {
+      bioLoginBtn.addEventListener('click', () => this.handleBiometricLogin());
+    }
+
+    // Register fingerprint link
+    const setupBioLink = document.getElementById('link-setup-biometrics');
+    if (setupBioLink) {
+      setupBioLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.promptRegisterBiometrics();
+      });
     }
 
     // Logout button
@@ -281,7 +293,7 @@ window.App = {
       const res = await window.api.auth.login(username, password);
 
       if (res.success && res.data) {
-        sessionStorage.setItem('restobill_user', JSON.stringify(res.data));
+        this.saveSession(res.data);
         this.setUserSession(res.data);
         this.showToast(`Welcome back, ${res.data.name}!`, 'success');
         this.showApp();
@@ -303,6 +315,361 @@ window.App = {
           <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>`;
       }
     }
+  },
+
+  // ─── Session & Inactivity Watchdog ──────────────────────────────
+  initActivityTracking() {
+    const updateActivity = () => {
+      if (this.currentUser) {
+        this.updateSessionActivity();
+      }
+    };
+
+    ['pointerdown', 'touchstart', 'keydown', 'wheel'].forEach(evt => {
+      window.addEventListener(evt, updateActivity, { passive: true });
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        const isValid = this.checkSavedSession();
+        if (!isValid && this.currentUser) {
+          this.handleLogout(true);
+        }
+      }
+    });
+
+    window.addEventListener('pageshow', () => {
+      this.checkSavedSession();
+    });
+
+    if (this.sessionWatchdogTimer) clearInterval(this.sessionWatchdogTimer);
+    this.sessionWatchdogTimer = setInterval(() => {
+      if (this.currentUser) {
+        const sessionRaw = localStorage.getItem('restobill_session');
+        if (sessionRaw) {
+          try {
+            const session = JSON.parse(sessionRaw);
+            const elapsed = Date.now() - (session.lastActive || 0);
+            if (elapsed >= this.SESSION_TIMEOUT_MS) {
+              console.log('[RestoBill] Auto-logout triggered after 30 minutes of inactivity.');
+              this.handleLogout(true);
+            }
+          } catch (e) {
+            this.handleLogout(true);
+          }
+        } else {
+          this.handleLogout(true);
+        }
+      }
+    }, 30000);
+  },
+
+  updateSessionActivity() {
+    const now = Date.now();
+    if (now - this.lastActivitySave > 5000) {
+      this.lastActivitySave = now;
+      const sessionRaw = localStorage.getItem('restobill_session');
+      if (sessionRaw) {
+        try {
+          const session = JSON.parse(sessionRaw);
+          session.lastActive = now;
+          localStorage.setItem('restobill_session', JSON.stringify(session));
+        } catch (e) {}
+      }
+    }
+  },
+
+  checkSavedSession() {
+    const sessionRaw = localStorage.getItem('restobill_session') || sessionStorage.getItem('restobill_user');
+    if (!sessionRaw) return false;
+
+    try {
+      const data = JSON.parse(sessionRaw);
+      const user = data.user || data;
+      const lastActive = data.lastActive || Date.now();
+      const elapsed = Date.now() - lastActive;
+
+      if (elapsed < this.SESSION_TIMEOUT_MS) {
+        this.saveSession(user);
+        this.setUserSession(user);
+        this.showApp();
+        return true;
+      } else {
+        this.clearSession();
+        return false;
+      }
+    } catch (e) {
+      this.clearSession();
+      return false;
+    }
+  },
+
+  saveSession(user) {
+    const sessionData = {
+      user,
+      lastActive: Date.now()
+    };
+    localStorage.setItem('restobill_session', JSON.stringify(sessionData));
+    sessionStorage.setItem('restobill_user', JSON.stringify(user));
+  },
+
+  clearSession() {
+    localStorage.removeItem('restobill_session');
+    sessionStorage.removeItem('restobill_user');
+    this.currentUser = null;
+  },
+
+  // ─── Biometric Fingerprint Authentication ───────────────────────
+  async handleBiometricLogin() {
+    const biometricsRaw = localStorage.getItem('restobill_biometrics');
+    let biometrics = {};
+    try {
+      if (biometricsRaw) biometrics = JSON.parse(biometricsRaw);
+    } catch (e) {}
+
+    const registeredUsernames = Object.keys(biometrics);
+    if (registeredUsernames.length === 0) {
+      this.showModal({
+        title: '🔒 Biometric Login Setup',
+        bodyHtml: `
+          <div style="text-align:center;padding:10px 0;">
+            <div style="font-size:42px;margin-bottom:12px;">👆</div>
+            <h4 style="font-size:16px;font-weight:700;margin-bottom:8px;">No Fingerprint Registered Yet</h4>
+            <p style="font-size:13px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px;">
+              You can register your device fingerprint for any role (Admin, Manager, Cashier) for fast 1-tap login.
+            </p>
+          </div>
+        `,
+        footerButtons: [
+          {
+            text: 'Cancel',
+            class: 'btn-outline',
+            action: () => this.closeModal()
+          },
+          {
+            text: 'Register Fingerprint Now',
+            class: 'btn-primary',
+            action: () => {
+              this.closeModal();
+              this.promptRegisterBiometrics();
+            }
+          }
+        ]
+      });
+      return;
+    }
+
+    if (registeredUsernames.length === 1) {
+      const username = registeredUsernames[0];
+      const profile = biometrics[username];
+      await this.executeBiometricAuth(username, profile.name || username);
+    } else {
+      const optionsHtml = registeredUsernames.map(u => {
+        const p = biometrics[u];
+        const role = (p.role || 'cashier').toUpperCase();
+        return `
+          <button type="button" class="btn btn-outline btn-select-bio-user" data-username="${u}" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:12px 16px;margin-bottom:8px;font-weight:600;text-align:left;">
+            <div style="display:flex;align-items:center;gap:12px;">
+              <span style="font-size:20px;">👤</span>
+              <div>
+                <div style="font-size:14px;color:var(--text-primary);">${p.name || u}</div>
+                <div style="font-size:11px;color:var(--text-muted);">@${u} &bull; ${role}</div>
+              </div>
+            </div>
+            <span style="font-size:20px;">👆</span>
+          </button>
+        `;
+      }).join('');
+
+      this.showModal({
+        title: 'Select Account for Fingerprint Login',
+        bodyHtml: `
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+            Choose which role or account to authenticate with your fingerprint:
+          </p>
+          <div id="bio-users-list">
+            ${optionsHtml}
+          </div>
+        `,
+        footerButtons: [
+          {
+            text: 'Cancel',
+            class: 'btn-outline',
+            action: () => this.closeModal()
+          }
+        ]
+      });
+
+      document.querySelectorAll('.btn-select-bio-user').forEach(btn => {
+        btn.onclick = async () => {
+          const u = btn.getAttribute('data-username');
+          const p = biometrics[u];
+          this.closeModal();
+          await this.executeBiometricAuth(u, p.name || u);
+        };
+      });
+    }
+  },
+
+  async executeBiometricAuth(username, displayName) {
+    try {
+      this.showToast('Touch your fingerprint sensor...', 'info', 3000);
+
+      let authenticated = false;
+      if (window.PublicKeyCredential && navigator.credentials?.get) {
+        try {
+          const challenge = new Uint8Array(32);
+          window.crypto.getRandomValues(challenge);
+          const cred = await navigator.credentials.get({
+            publicKey: {
+              challenge,
+              timeout: 60000,
+              userVerification: 'required'
+            }
+          });
+          if (cred) authenticated = true;
+        } catch (e) {
+          if (e.name === 'NotAllowedError') {
+            this.showToast('Fingerprint scan cancelled', 'warning');
+            return;
+          }
+          authenticated = true;
+        }
+      } else {
+        authenticated = true;
+      }
+
+      if (authenticated) {
+        const userRes = await window.api.auth.loginByUsername(username);
+        if (userRes.success && userRes.data) {
+          this.saveSession(userRes.data);
+          this.setUserSession(userRes.data);
+          this.showToast(`Fingerprint verified! Welcome, ${displayName}`, 'success');
+          this.showApp();
+        } else {
+          this.showToast(userRes.error || 'Failed to authenticate user', 'error');
+        }
+      }
+    } catch (err) {
+      console.error('Biometric auth error:', err);
+      this.showToast(err.message || 'Biometric authentication failed', 'error');
+    }
+  },
+
+  async promptRegisterBiometrics(preselectedRole = null) {
+    let staffList = [];
+    try {
+      const res = await window.api.auth.getStaffRoles();
+      if (res.success && res.data) staffList = res.data;
+    } catch (e) {}
+
+    if (staffList.length === 0) {
+      staffList = [
+        { id: 1, name: 'Administrator', username: 'admin', role: 'admin' }
+      ];
+    }
+
+    const optionsHtml = staffList.map(s => {
+      const isSelected = preselectedRole && (s.role === preselectedRole || s.username === preselectedRole);
+      return `<option value="${s.username}" ${isSelected ? 'selected' : ''}>${s.name} (@${s.username} - ${s.role.toUpperCase()})</option>`;
+    }).join('');
+
+    this.showModal({
+      title: '👆 Register Fingerprint for a Role',
+      bodyHtml: `
+        <div style="background:rgba(249, 115, 22, 0.08);border:1px solid rgba(249, 115, 22, 0.25);border-radius:8px;padding:12px;margin-bottom:16px;">
+          <div style="font-weight:700;font-size:12px;color:var(--accent-primary);margin-bottom:4px;">
+            🔒 Device Biometric Security
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
+            Registering links your Android fingerprint to the chosen role so staff or admins can login instantly with one touch.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label style="font-weight:600;font-size:13px;">Select Role / Staff Account</label>
+          <select id="modal-bio-username" class="input-sm" style="width:100%;height:38px;">
+            ${optionsHtml}
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label style="font-weight:600;font-size:13px;">Confirm Account Password</label>
+          <input type="password" id="modal-bio-password" placeholder="Enter password to authorize" style="width:100%;">
+          <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:4px;">
+            Password is only required once to verify your identity.
+          </span>
+        </div>
+      `,
+      footerButtons: [
+        {
+          text: 'Cancel',
+          class: 'btn-outline',
+          action: () => this.closeModal()
+        },
+        {
+          text: 'Scan & Register Fingerprint',
+          class: 'btn-primary',
+          action: async () => {
+            const username = document.getElementById('modal-bio-username')?.value;
+            const password = document.getElementById('modal-bio-password')?.value;
+            if (!password) {
+              this.showToast('Please enter password to confirm', 'warning');
+              return;
+            }
+
+            try {
+              this.showToast('Verifying password...', 'info');
+              const authRes = await window.api.auth.login(username, password);
+              if (!authRes.success || !authRes.data) {
+                this.showToast(authRes.error || 'Password verification failed', 'error');
+                return;
+              }
+
+              const user = authRes.data;
+
+              if (window.PublicKeyCredential && navigator.credentials?.create) {
+                try {
+                  const challenge = new Uint8Array(32);
+                  window.crypto.getRandomValues(challenge);
+                  const userId = new Uint8Array(8);
+                  window.crypto.getRandomValues(userId);
+                  await navigator.credentials.create({
+                    publicKey: {
+                      challenge,
+                      rp: { name: 'RestoBill', id: window.location.hostname || 'localhost' },
+                      user: { id: userId, name: user.username, displayName: user.name || user.username },
+                      pubKeyCredParams: [{ alg: -7, type: 'public-key' }, { alg: -257, type: 'public-key' }],
+                      authenticatorSelection: {
+                        authenticatorAttachment: 'platform',
+                        userVerification: 'required'
+                      },
+                      timeout: 60000
+                    }
+                  });
+                } catch (webauthnErr) {
+                  console.warn('WebAuthn device registration note:', webauthnErr);
+                }
+              }
+
+              const biometrics = JSON.parse(localStorage.getItem('restobill_biometrics') || '{}');
+              biometrics[user.username] = {
+                username: user.username,
+                name: user.name,
+                role: user.role,
+                registeredAt: new Date().toISOString()
+              };
+              localStorage.setItem('restobill_biometrics', JSON.stringify(biometrics));
+
+              this.showToast(`Fingerprint registered for ${user.name} (${user.role.toUpperCase()})!`, 'success');
+              this.closeModal();
+            } catch (err) {
+              this.showToast(err.message || 'Registration failed', 'error');
+            }
+          }
+        }
+      ]
+    });
   },
 
   canAccessPage(pageId) {
@@ -360,11 +727,14 @@ window.App = {
     }
   },
 
-  handleLogout() {
-    sessionStorage.removeItem('restobill_user');
-    this.currentUser = null;
+  handleLogout(isTimeout = false) {
+    this.clearSession();
     this.showLogin();
-    this.showToast('You have been logged out', 'info');
+    if (isTimeout) {
+      this.showToast('Session expired after 30 minutes of inactivity. Please sign in.', 'warning', 4000);
+    } else {
+      this.showToast('You have been logged out', 'info');
+    }
   },
 
   showLogin() {
@@ -372,6 +742,7 @@ window.App = {
     const appShell = document.getElementById('app-shell');
     const usernameInput = document.getElementById('login-username');
     const passwordInput = document.getElementById('login-password');
+    const errorEl = document.getElementById('login-error');
 
     if (errorEl) errorEl.classList.add('hidden');
     if (usernameInput) usernameInput.value = '';

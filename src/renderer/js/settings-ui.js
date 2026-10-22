@@ -1029,77 +1029,86 @@ window.SettingsUI = {
     try {
       const statusRes = await window.api.gdrive.getStatus();
       const statusBox = document.getElementById('backup-status-container');
-      const isConnected = statusRes?.success && (statusRes.data?.connected || statusRes.data?.authenticated);
-
       if (statusBox) {
-        if (isConnected) {
-          const email = statusRes.data?.email || 'Authorized Google Account';
-          const lastBackup = statusRes.data?.lastBackup;
-          const lastBackupText = lastBackup?.lastBackup
-            ? window.App.formatDateTime(lastBackup.lastBackup)
-            : 'None yet';
+        const isConnected = statusRes?.data?.connected;
+        const hasCreds = statusRes?.data?.hasCredentials;
+        const hasToken = statusRes?.data?.hasToken;
+        const email = statusRes?.data?.email || 'Google Drive Connected';
+        const lastBackupText = statusRes?.data?.lastBackup
+          ? window.App.formatDateTime(statusRes.data.lastBackup)
+          : 'None';
 
-          statusBox.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
-              <div style="display:flex;align-items:center;gap:14px;">
-                <div style="width:42px;height:42px;border-radius:50%;background:rgba(34,197,94,0.15);display:flex;align-items:center;justify-content:center;font-size:22px;">
-                  🟢
-                </div>
-                <div>
-                  <div style="font-weight:700;color:var(--color-success);font-size:15px;">Connected to Google Drive</div>
-                  <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Account: <b>${email}</b></div>
-                  <div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Target Folder: <code>RestoBill_Backups</code> &bull; Last Backup: <b>${lastBackupText}</b></div>
-                </div>
+        statusBox.innerHTML = `
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+            <div style="display:flex;align-items:flex-start;gap:14px;flex:1;min-width:240px;">
+              <div style="width:42px;height:42px;border-radius:50%;background:${isConnected ? 'rgba(34,197,94,0.15)' : 'rgba(99,102,241,0.12)'};display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">
+                ${isConnected ? '🟢' : '☁️'}
               </div>
-              <button class="btn btn-outline btn-sm btn-danger" id="btn-disconnect-gdrive">Disconnect</button>
-            </div>
-          `;
-
-          document.getElementById('btn-disconnect-gdrive')?.addEventListener('click', async () => {
-            if (confirm('Are you sure you want to disconnect Google Drive?')) {
-              await window.api.gdrive.disconnect();
-              window.App.showToast('Google Drive disconnected', 'info');
-              this.render();
-            }
-          });
-        } else {
-          const hasCreds = statusRes?.data?.hasCredentials;
-          statusBox.innerHTML = `
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;">
-              <div style="display:flex;align-items:center;gap:14px;">
-                <div style="width:42px;height:42px;border-radius:50%;background:rgba(99,102,241,0.12);display:flex;align-items:center;justify-content:center;font-size:22px;">
-                  ☁️
+              <div>
+                <div style="font-weight:700;font-size:15px;color:${isConnected ? 'var(--color-success)' : 'var(--text-primary)'};">
+                  ${isConnected ? 'Connected to Google Drive' : 'Google Drive Cloud Backup'}
                 </div>
-                <div>
-                  <div style="font-weight:700;font-size:15px;">Not Connected to Google Drive</div>
-                  <p style="font-size:12px;color:var(--text-muted);margin-top:2px;">
-                    ${hasCreds ? 'OAuth credentials found! Click Connect to authorize your Google Drive.' : 'Credentials not detected. Place credentials.json in app directory.'}
-                  </p>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">
+                  <span>Credentials: <b>${hasCreds ? '✅ Saved in App' : '⚠️ Missing'}</b></span> &bull; 
+                  <span>Token: <b>${hasToken ? '✅ Active' : '⚠️ Missing'}</b></span>
                 </div>
+                <p style="font-size:12px;color:var(--text-muted);margin-top:4px;">
+                  ${isConnected ? `Account: <b>${email}</b> &bull; Last Backup: <b>${lastBackupText}</b>` : 'Paste your Google Drive credentials.json & token JSON directly below to backup safely.'}
+                </p>
               </div>
-              <button class="btn btn-primary btn-sm" id="btn-connect-gdrive">Connect Google Drive</button>
             </div>
-          `;
 
-          document.getElementById('btn-connect-gdrive')?.addEventListener('click', async () => {
-            try {
-              window.App.showToast('Opening Google authorization in your browser...', 'info');
-              const urlRes = await window.api.gdrive.getAuthUrl();
-              if (urlRes.success && urlRes.data) {
-                window.api.app.openExternal(urlRes.data);
-                this.promptAuthCode();
-              } else {
-                window.App.showToast(urlRes.error || 'Google Drive client credentials not found', 'warning');
-              }
-            } catch (err) {
-              window.App.showToast(err.message, 'error');
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-outline btn-sm" id="btn-paste-creds" style="font-size:12px;">
+                📋 ${hasCreds ? 'Edit credentials.json' : 'Paste credentials.json'}
+              </button>
+              <button type="button" class="btn btn-outline btn-sm" id="btn-paste-token" style="font-size:12px;">
+                🔑 ${hasToken ? 'Edit Token' : 'Paste Token / Code'}
+              </button>
+              ${isConnected ? `
+                <button type="button" class="btn btn-outline btn-sm btn-danger" id="btn-disconnect-gdrive">Disconnect</button>
+              ` : `
+                <button type="button" class="btn btn-primary btn-sm" id="btn-open-gdrive-auth">Authorize Google</button>
+              `}
+            </div>
+          </div>
+        `;
+
+        // Event: Paste credentials.json
+        document.getElementById('btn-paste-creds')?.addEventListener('click', async () => {
+          this.promptPasteCredentials();
+        });
+
+        // Event: Paste token
+        document.getElementById('btn-paste-token')?.addEventListener('click', async () => {
+          this.promptPasteToken();
+        });
+
+        // Event: Authorize Google
+        document.getElementById('btn-open-gdrive-auth')?.addEventListener('click', async () => {
+          try {
+            const urlRes = await window.api.gdrive.getAuthUrl();
+            if (urlRes?.success && urlRes?.data) {
+              window.api.app.openExternal(urlRes.data);
+              this.promptAuthCode();
+            } else {
+              window.App.showToast(urlRes?.error || 'Please paste credentials.json content first!', 'warning');
+              this.promptPasteCredentials();
             }
-          });
-        }
-      }
-    } catch (e) {
-      console.error(e);
-    }
+          } catch (err) {
+            window.App.showToast(err.message || 'Please paste credentials.json first', 'warning');
+            this.promptPasteCredentials();
+          }
+        });
+
+        // Event: Disconnect
+        document.getElementById('btn-disconnect-gdrive')?.addEventListener('click', async () => {
+          if (confirm('Disconnect Google Drive? You can re-paste or re-connect anytime.')) {
+            await window.api.gdrive.disconnect();
+            window.App.showToast('Google Drive disconnected', 'info');
+            this.render();
+          }
+        });
 
     // Backup Now Button
     document.getElementById('btn-trigger-backup')?.addEventListener('click', async () => {
@@ -1232,6 +1241,122 @@ window.SettingsUI = {
                 this.render();
               } else {
                 window.App.showToast(res.error || 'Authentication failed. Please verify the code and try again.', 'error');
+              }
+            } catch (err) {
+              window.App.showToast(err.message, 'error');
+            }
+          }
+        }
+      ]
+    });
+  },
+
+  async promptPasteCredentials() {
+    let existing = '';
+    try {
+      const creds = await window.api.gdrive.getCredentials();
+      if (creds) existing = JSON.stringify(creds, null, 2);
+    } catch (e) {}
+
+    window.App.showModal({
+      title: '📋 Paste credentials.json Content',
+      bodyHtml: `
+        <div style="background:rgba(99, 102, 241, 0.08);border:1px solid rgba(99, 102, 241, 0.25);border-radius:8px;padding:12px;margin-bottom:14px;">
+          <div style="font-weight:700;font-size:12px;color:var(--accent-primary);margin-bottom:4px;">
+            ℹ️ Direct In-App Credentials Setup
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
+            Paste the raw JSON content of your Google Cloud OAuth <code>credentials.json</code> file below. No file placement needed!
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label style="font-weight:600;font-size:13px;">credentials.json (OAuth Client JSON)</label>
+          <textarea id="modal-gdrive-creds-json" rows="9" style="font-family:monospace;font-size:11px;width:100%;padding:10px;line-height:1.4;" placeholder='{\n  "installed": {\n    "client_id": "...",\n    "client_secret": "..."\n  }\n}'>${existing}</textarea>
+        </div>
+      `,
+      footerButtons: [
+        {
+          text: 'Cancel',
+          class: 'btn-outline',
+          action: () => window.App.closeModal()
+        },
+        {
+          text: 'Save Credentials',
+          class: 'btn-primary',
+          action: async () => {
+            const raw = document.getElementById('modal-gdrive-creds-json')?.value.trim();
+            if (!raw) {
+              window.App.showToast('Please paste your credentials.json text', 'warning');
+              return;
+            }
+            try {
+              window.App.showToast('Validating credentials...', 'info');
+              const res = await window.api.gdrive.saveCredentials(raw);
+              if (res.success) {
+                window.App.showToast('credentials.json saved successfully in app!', 'success');
+                window.App.closeModal();
+                this.render();
+              } else {
+                window.App.showToast(res.error || 'Invalid credentials JSON', 'error');
+              }
+            } catch (err) {
+              window.App.showToast(err.message, 'error');
+            }
+          }
+        }
+      ]
+    });
+  },
+
+  async promptPasteToken() {
+    let existing = '';
+    try {
+      const tok = await window.api.gdrive.getToken();
+      if (tok) existing = typeof tok === 'string' ? tok : JSON.stringify(tok, null, 2);
+    } catch (e) {}
+
+    window.App.showModal({
+      title: '🔑 Paste Google Drive Token / Code',
+      bodyHtml: `
+        <div style="background:rgba(34, 197, 94, 0.08);border:1px solid rgba(34, 197, 94, 0.25);border-radius:8px;padding:12px;margin-bottom:14px;">
+          <div style="font-weight:700;font-size:12px;color:var(--color-success);margin-bottom:4px;">
+            🔒 Paste OAuth Token or Authorization Code
+          </div>
+          <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
+            Paste your <code>gdrive_token.json</code> content, OAuth Access Token, or the <code>4/0A...</code> authorization code from Google.
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label style="font-weight:600;font-size:13px;">Token JSON or Authorization Code</label>
+          <textarea id="modal-gdrive-token-json" rows="8" style="font-family:monospace;font-size:11px;width:100%;padding:10px;line-height:1.4;" placeholder='Paste token JSON or raw auth code here...'>${existing}</textarea>
+        </div>
+      `,
+      footerButtons: [
+        {
+          text: 'Cancel',
+          class: 'btn-outline',
+          action: () => window.App.closeModal()
+        },
+        {
+          text: 'Save Token & Connect',
+          class: 'btn-primary',
+          action: async () => {
+            const raw = document.getElementById('modal-gdrive-token-json')?.value.trim();
+            if (!raw) {
+              window.App.showToast('Please paste your token JSON or code', 'warning');
+              return;
+            }
+            try {
+              window.App.showToast('Saving token...', 'info');
+              const res = await window.api.gdrive.saveToken(raw);
+              if (res.success) {
+                window.App.showToast('Google Drive connected successfully!', 'success');
+                window.App.closeModal();
+                this.render();
+              } else {
+                window.App.showToast(res.error || 'Failed to save token', 'error');
               }
             } catch (err) {
               window.App.showToast(err.message, 'error');

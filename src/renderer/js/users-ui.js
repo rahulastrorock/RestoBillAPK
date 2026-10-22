@@ -90,6 +90,9 @@ window.UsersUI = {
               <button class="action-btn action-print btn-password-user" data-id="${user.id}" title="Change Password">
                 <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clip-rule="evenodd"/></svg>
               </button>
+              <button class="action-btn btn-fingerprint-user" data-username="${user.username}" title="Register Fingerprint">
+                <span style="font-size:13px;">👆</span>
+              </button>
               ${!isSelf ? `
                 <button class="action-btn btn-toggle-active" data-id="${user.id}" data-active="${isActive ? '1' : '0'}" title="${isActive ? 'Deactivate User' : 'Activate User'}">
                   <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM7 9a1 1 0 000 2h6a1 1 0 100-2H7z" clip-rule="evenodd"/></svg>
@@ -124,6 +127,13 @@ window.UsersUI = {
         const id = parseInt(btn.getAttribute('data-id'), 10);
         const user = this.users.find(u => u.id === id);
         if (user) this.openChangePasswordModal(user);
+      };
+    });
+
+    grid.querySelectorAll('.btn-fingerprint-user').forEach(btn => {
+      btn.onclick = () => {
+        const username = btn.getAttribute('data-username');
+        window.App.promptRegisterBiometrics(username);
       };
     });
 

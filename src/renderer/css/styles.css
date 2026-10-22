@@ -3048,10 +3048,10 @@ input:checked + .switch-slider:before {
 }
 
 @media (max-width: 900px) {
-  /* ── 1. Android Status Bar Padding (Safe Area Insets) ── */
+  /* ── 1. Android Status Bar & Bottom Navigation Bar Padding ── */
   :root {
     --mobile-safe-top: max(env(safe-area-inset-top, 0px), 32px);
-    --mobile-safe-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+    --mobile-safe-bottom: max(env(safe-area-inset-bottom, 0px), 28px);
   }
 
   /* Topbar with safe padding for clock, battery, camera notch */
@@ -3173,15 +3173,17 @@ input:checked + .switch-slider:before {
   .main-content {
     width: 100vw;
     min-width: 0;
+    padding-bottom: var(--mobile-safe-bottom);
   }
 
   .page-container {
-    height: calc(100vh - 54px - var(--mobile-safe-top));
+    height: calc(100vh - 54px - var(--mobile-safe-top) - var(--mobile-safe-bottom));
+    height: calc(100dvh - 54px - var(--mobile-safe-top) - var(--mobile-safe-bottom));
     overflow: hidden;
   }
 
   .page {
-    padding: 12px;
+    padding: 12px 10px calc(var(--mobile-safe-bottom) + 14px) 10px;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
@@ -3291,10 +3293,32 @@ input:checked + .switch-slider:before {
     border: 1px solid var(--border-color);
   }
 
+  .pos-menu-panel {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    border-right: none;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(var(--mobile-safe-bottom) + 85px) !important;
+  }
+
   .pos-items-grid {
     grid-template-columns: repeat(2, 1fr) !important;
-    padding: 10px !important;
+    padding: 10px 8px !important;
     gap: 8px !important;
+    padding-bottom: calc(var(--mobile-safe-bottom) + 95px) !important;
+    margin-bottom: 20px !important;
+  }
+
+  .pos-layout .pos-order-panel {
+    display: none;
+    width: 100%;
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: calc(var(--mobile-safe-bottom) + 24px) !important;
   }
 
   .pos-item-card {
@@ -3320,22 +3344,25 @@ input:checked + .switch-slider:before {
     font-size: 12px;
   }
 
-  /* Floating Bottom Cart Bar */
+  /* Floating Bottom Cart Bar (Snackbar) */
   .pos-mobile-floating-bar {
-    position: fixed;
-    bottom: max(env(safe-area-inset-bottom, 0px), 12px);
-    left: 12px;
-    right: 12px;
-    background: linear-gradient(135deg, #f97316, #ea580c);
-    color: #ffffff;
-    padding: 10px 14px;
-    border-radius: var(--radius-lg);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    box-shadow: 0 8px 24px rgba(249, 115, 22, 0.45);
-    z-index: 80;
-    cursor: pointer;
+    position: fixed !important;
+    bottom: calc(var(--mobile-safe-bottom) + 10px) !important;
+    left: 14px !important;
+    right: 14px !important;
+    background: linear-gradient(135deg, #f97316, #ea580c) !important;
+    color: #ffffff !important;
+    padding: 12px 18px !important;
+    border-radius: 28px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    box-shadow: 0 10px 28px rgba(234, 88, 12, 0.45) !important;
+    z-index: 150 !important;
+    cursor: pointer !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(255, 255, 255, 0.25) !important;
   }
 
   .pos-mobile-floating-bar.hidden {
@@ -3418,23 +3445,76 @@ input:checked + .switch-slider:before {
     gap: 12px !important;
   }
 
-  /* ── 5. Analytics Dashboard Mobile ── */
-  .dashboard-stats,
-  .stats-grid {
+  /* ── 5. Analytics Dashboard & Stat Cards (Centered Inner Content) ── */
+  .summary-cards {
+    display: grid !important;
     grid-template-columns: repeat(2, 1fr) !important;
-    gap: 10px !important;
+    gap: 12px !important;
+    padding: 2px 4px !important;
+    margin-bottom: 16px !important;
   }
 
-  .stat-card {
-    padding: 12px !important;
+  .summary-card {
+    padding: 18px 12px !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    text-align: center !important;
+    gap: 8px !important;
+    border-radius: var(--radius-md) !important;
+    box-sizing: border-box !important;
   }
 
-  .stat-card .stat-value {
-    font-size: 20px !important;
+  .summary-card .card-icon {
+    width: 44px !important;
+    height: 44px !important;
+    margin: 0 auto 2px auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
   }
 
-  .stat-card .stat-label {
+  .summary-card .card-content {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    text-align: center !important;
+    width: 100% !important;
+  }
+
+  .summary-card .card-label {
     font-size: 11px !important;
+    font-weight: 600 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.04em !important;
+    text-align: center !important;
+    margin-bottom: 4px !important;
+    color: var(--text-secondary) !important;
+  }
+
+  .summary-card .card-value {
+    font-size: 20px !important;
+    font-weight: 800 !important;
+    text-align: center !important;
+    margin-bottom: 2px !important;
+    color: var(--text-primary) !important;
+  }
+
+  .summary-card .card-change {
+    justify-content: center !important;
+    text-align: center !important;
+    font-size: 11px !important;
+  }
+
+  .dashboard-layout {
+    padding: 10px 4px !important;
+    gap: 14px !important;
+  }
+
+  .chart-card {
+    padding: 16px 12px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .charts-grid,
@@ -3443,7 +3523,30 @@ input:checked + .switch-slider:before {
     gap: 14px !important;
   }
 
-  /* ── 6. Menu Management & Tables Mobile ── */
+  /* ── 6. Business Reports Responsive Tables ── */
+  .reports-two-col-grid {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+    width: 100% !important;
+  }
+
+  .reports-section-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-md);
+    padding: 14px 10px !important;
+    min-width: 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .report-content {
+    width: 100% !important;
+    overflow-x: hidden !important;
+  }
+
+  /* ── 7. Menu Management & Tables Mobile ── */
   .page-header {
     flex-direction: column;
     align-items: stretch !important;
@@ -3478,23 +3581,38 @@ input:checked + .switch-slider:before {
     min-width: 580px;
   }
 
-  /* ── 7. Modals on Mobile ── */
+  /* Order Action Buttons */
+  .order-submit-actions {
+    display: flex !important;
+    gap: 8px !important;
+    width: 100% !important;
+  }
+
+  .order-submit-actions .btn {
+    flex: 1 !important;
+    padding: 12px 6px !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+  }
+
+  /* ── 8. Modals & Dialogs on Mobile ── */
   .modal {
     width: 95vw !important;
     max-width: 95vw !important;
-    max-height: 88vh !important;
-    margin: auto;
+    max-height: 84vh !important;
+    margin: auto auto calc(var(--mobile-safe-bottom) + 16px) auto !important;
   }
 
   .modal-body {
-    max-height: 65vh;
-    overflow-y: auto;
-    padding: 16px;
+    max-height: 60vh !important;
+    overflow-y: auto !important;
+    padding: 16px !important;
   }
 
   .detail-panel {
     width: 100vw !important;
     max-width: 100vw !important;
+    padding-bottom: calc(var(--mobile-safe-bottom) + 16px) !important;
   }
 }
 

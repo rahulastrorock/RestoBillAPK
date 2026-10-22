@@ -273,14 +273,14 @@ window.ReportsUI = {
     `).join('');
 
     container.innerHTML = `
-      <div style="display:grid;grid-template-columns:1.5fr 1fr;gap:20px;">
-        <div>
-          <h3 style="font-size:15px;font-weight:700;margin-bottom:10px;">Top Selling Items</h3>
+      <div class="reports-two-col-grid">
+        <div class="reports-section-card">
+          <h3 style="font-size:15px;font-weight:700;margin-bottom:10px;color:var(--text-primary);">Top Selling Items</h3>
           <div class="table-container">
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>#</th>
+                  <th style="width:36px;">#</th>
                   <th>Item Name</th>
                   <th>Qty Sold</th>
                   <th>Total Sales</th>
@@ -294,8 +294,8 @@ window.ReportsUI = {
           </div>
         </div>
 
-        <div>
-          <h3 style="font-size:15px;font-weight:700;margin-bottom:10px;">Category Breakdown</h3>
+        <div class="reports-section-card">
+          <h3 style="font-size:15px;font-weight:700;margin-bottom:10px;color:var(--text-primary);">Category Breakdown</h3>
           <div class="table-container">
             <table class="data-table">
               <thead>
