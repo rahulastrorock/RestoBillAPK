@@ -186,9 +186,23 @@ input, select, textarea, button {
 }
 
 .login-logo {
-  margin-bottom: 16px;
+  margin-bottom: 20px;
   display: flex;
   justify-content: center;
+}
+
+.login-logo-img {
+  width: 76px;
+  height: 76px;
+  border-radius: 18px;
+  object-fit: contain;
+  box-shadow: 0 10px 25px rgba(249, 115, 22, 0.28), 0 4px 10px rgba(0, 0, 0, 0.15);
+  transition: transform var(--transition-normal), box-shadow var(--transition-normal);
+}
+
+.login-logo-img:hover {
+  transform: translateY(-2px) scale(1.04);
+  box-shadow: 0 14px 30px rgba(249, 115, 22, 0.38), 0 6px 14px rgba(0, 0, 0, 0.2);
 }
 
 .login-title {
@@ -506,6 +520,15 @@ input, select, textarea, button {
   gap: 12px;
 }
 
+.sidebar-logo-img {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  object-fit: contain;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px rgba(249, 115, 22, 0.2);
+}
+
 .sidebar-brand {
   font-size: 20px;
   font-weight: 800;
@@ -657,6 +680,15 @@ input, select, textarea, button {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.topbar-logo-img {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: contain;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(249, 115, 22, 0.2);
 }
 
 .page-title {
@@ -3115,6 +3147,12 @@ input:checked + .switch-slider:before {
     gap: 8px;
     min-width: 0;
     flex: 1;
+  }
+
+  .topbar-logo-img {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
   }
 
   .page-title {
