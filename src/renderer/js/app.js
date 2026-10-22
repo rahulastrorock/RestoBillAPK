@@ -493,61 +493,76 @@ window.App = {
   },
 
   async executeBiometricAuth(username, displayName) {
+    const biometricsRaw = localStorage.getItem('restobill_biometrics');
+    let biometrics = {};
     try {
-      this.showModal({
-        title: '👆 Fingerprint Verification',
-        bodyHtml: `
-          <div style="text-align:center;padding:16px 8px;">
-            <div style="width:76px;height:76px;margin:0 auto 16px;border-radius:50%;background:rgba(249,115,22,0.12);border:2px dashed var(--accent-primary);display:flex;align-items:center;justify-content:center;font-size:38px;">
-              👆
-            </div>
-            <h4 style="font-size:16px;font-weight:700;margin-bottom:6px;color:var(--text-primary);">Touch Fingerprint Sensor</h4>
-            <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
-              Authenticating as <b>${displayName}</b> (@${username})
-            </p>
-            <div style="font-size:11px;color:var(--text-muted);">
-              Tap 'Verify & Login' below or touch your device sensor
-            </div>
-          </div>
-        `,
-        footerButtons: [
-          {
-            text: 'Cancel',
-            className: 'btn btn-outline btn-sm',
-            onClick: () => {
-              if (this._bioTimer) clearTimeout(this._bioTimer);
-              this.closeModal();
-            }
-          },
-          {
-            text: '✓ Verify & Login',
-            className: 'btn btn-primary btn-sm',
-            onClick: async () => {
-              this.closeModal();
-              await this.completeBiometricLogin(username, displayName);
-            }
-          }
-        ]
-      });
+      if (biometricsRaw) biometrics = JSON.parse(biometricsRaw);
+    } catch (e) {}
+    const profile = biometrics[username] || { name: displayName, username };
 
-      // Quick auto-verification touch simulation for seamless 1-touch experience
-      this._bioTimer = setTimeout(() => {
-        const modal = document.getElementById('modal-overlay');
-        if (modal && !modal.classList.contains('hidden')) {
-          this.closeModal();
-          this.completeBiometricLogin(username, displayName);
-        }
-      }, 700);
+    try {
+      if (!window.BiometricAuth) {
+        this.showToast('Biometric service is loading. Please try again.', 'warning');
+        return;
+      }
+
+      const avail = await window.BiometricAuth.checkAvailability();
+      if (!avail.available) {
+        this.showModal({
+          title: '👆 Biometric Sensor Required',
+          bodyHtml: `
+            <div style="text-align:center;padding:16px 8px;">
+              <div style="width:68px;height:68px;margin:0 auto 16px;border-radius:50%;background:rgba(239,68,68,0.12);border:2px dashed var(--color-danger);display:flex;align-items:center;justify-content:center;font-size:32px;">
+                ⚠️
+              </div>
+              <h4 style="font-size:16px;font-weight:700;margin-bottom:8px;color:var(--text-primary);">Physical Sensor Not Detected</h4>
+              <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;line-height:1.5;">
+                ${avail.reason || 'No biometric hardware sensor detected on this device.'}
+              </p>
+              <div style="font-size:12px;color:var(--text-muted);background:var(--bg-surface);padding:10px;border-radius:6px;border:1px solid var(--border-color);">
+                💡 To login using your fingerprint, please open the RestoBill APK on an Android device with a physical fingerprint sensor.
+              </div>
+            </div>
+          `,
+          footerButtons: [
+            {
+              text: 'Sign In With Password',
+              className: 'btn btn-primary btn-sm',
+              onClick: () => {
+                this.closeModal();
+                const userInput = document.getElementById('login-username');
+                if (userInput) userInput.value = username;
+                const passInput = document.getElementById('login-password');
+                if (passInput) passInput.focus();
+              }
+            }
+          ]
+        });
+        return;
+      }
+
+      // Trigger REAL physical biometric prompt on hardware
+      this.showToast('Touch your fingerprint sensor to authenticate...', 'info', 3000);
+      await window.BiometricAuth.verify(username, profile);
+
+      // Only reached if physical sensor verified successfully!
+      await this.completeBiometricLogin(username, displayName);
     } catch (err) {
-      console.error('Biometric auth error:', err);
-      this.showToast(err.message || 'Biometric authentication failed', 'error');
+      console.error('Biometric authentication error:', err);
+      const msg = err.message || '';
+      if (msg.toLowerCase().includes('cancel') || msg.includes('USER_CANCEL') || msg.includes('16')) {
+        this.showToast('Fingerprint authentication cancelled.', 'info', 3000);
+      } else if (msg.toLowerCase().includes('failed') || msg.toLowerCase().includes('mismatch')) {
+        this.showToast('Fingerprint not recognized. Please touch with an enrolled finger.', 'error', 4000);
+      } else {
+        this.showToast(msg || 'Biometric verification failed. Please try again or use password.', 'error', 4000);
+      }
     }
   },
 
   async completeBiometricLogin(username, displayName) {
-    if (this._bioTimer) clearTimeout(this._bioTimer);
     try {
-      this.showToast('Verifying fingerprint...', 'info', 1000);
+      this.showToast('Verifying session...', 'info', 1000);
       const userRes = await window.api.auth.loginByUsername(username);
       if (userRes.success && userRes.data) {
         this.saveSession(userRes.data);
@@ -652,7 +667,7 @@ window.App = {
 
             // Authorization verification
             if (password) {
-              this.showToast('Verifying password...', 'info', 1000);
+              this.showToast('Verifying authorization...', 'info', 1000);
               let authRes = await window.api.auth.login(username, password);
               // Also allow current admin password if registering for another staff member
               if (!authRes.success && this.currentUser?.username) {
@@ -667,44 +682,84 @@ window.App = {
               return;
             }
 
-            // Save verified fingerprint profile
-            const biometricsStore = JSON.parse(localStorage.getItem('restobill_biometrics') || '{}');
-            biometricsStore[username] = {
-              username: targetUser.username,
-              name: targetUser.name,
-              role: targetUser.role,
-              registeredAt: new Date().toISOString()
-            };
-            localStorage.setItem('restobill_biometrics', JSON.stringify(biometricsStore));
+            // Check hardware sensor availability before trying to scan
+            if (!window.BiometricAuth) {
+              this.showToast('Biometric service is not loaded.', 'error');
+              return;
+            }
 
-            this.updateBiometricLoginUI();
-            if (window.UsersUI?.fetchUsers) window.UsersUI.fetchUsers();
-            if (window.UsersUI?.renderGrid) window.UsersUI.renderGrid();
+            const avail = await window.BiometricAuth.checkAvailability();
+            if (!avail.available) {
+              this.showToast(avail.reason || 'No biometric hardware sensor detected on this device.', 'error', 6000);
+              return;
+            }
 
-            this.showToast(`Fingerprint registered for ${targetUser.name} (@${targetUser.username})!`, 'success', 5000);
-            this.closeModal();
+            try {
+              this.showToast('Touch your fingerprint sensor to register...', 'info', 4000);
+              const enrollRes = await window.BiometricAuth.enroll(username, targetUser.name);
+
+              // Save verified fingerprint profile
+              const biometricsStore = JSON.parse(localStorage.getItem('restobill_biometrics') || '{}');
+              biometricsStore[username] = {
+                username: targetUser.username,
+                name: targetUser.name,
+                role: targetUser.role,
+                mode: enrollRes.mode,
+                credentialId: enrollRes.credentialId || null,
+                registeredAt: new Date().toISOString()
+              };
+              localStorage.setItem('restobill_biometrics', JSON.stringify(biometricsStore));
+
+              this.updateBiometricLoginUI();
+              if (window.UsersUI?.fetchUsers) window.UsersUI.fetchUsers();
+              if (window.UsersUI?.renderGrid) window.UsersUI.renderGrid();
+
+              this.showToast(`Fingerprint linked successfully for ${targetUser.name}!`, 'success', 5000);
+              this.closeModal();
+            } catch (scanErr) {
+              console.error('Biometric enrollment failed:', scanErr);
+              const msg = scanErr.message || '';
+              if (msg.toLowerCase().includes('cancel') || msg.includes('USER_CANCEL') || msg.includes('16')) {
+                this.showToast('Fingerprint registration cancelled.', 'info', 3000);
+              } else {
+                this.showToast(msg || 'Fingerprint registration failed. Please touch the sensor with a clean enrolled finger.', 'error', 5000);
+              }
+            }
           }
         }
       ]
     });
 
     // Update dynamic status on dropdown change
-    setTimeout(() => {
+    setTimeout(async () => {
       const select = document.getElementById('modal-bio-username');
-      const updateStatus = () => {
+      const updateStatus = async () => {
         const u = select ? select.value : '';
         const bios = JSON.parse(localStorage.getItem('restobill_biometrics') || '{}');
         const isLinked = !!bios[u];
         const statusEl = document.getElementById('modal-bio-status');
-        if (statusEl) {
-          statusEl.innerHTML = isLinked
-            ? `<span style="color:var(--color-success);font-weight:600;">✓ Fingerprint is currently registered for @${u}</span>`
-            : `<span style="color:var(--text-muted);">No fingerprint linked yet for @${u}</span>`;
+        if (!statusEl) return;
+
+        let hardwareNote = '';
+        if (window.BiometricAuth) {
+          try {
+            const avail = await window.BiometricAuth.checkAvailability();
+            if (avail.available) {
+              hardwareNote = `<div style="font-size:11px;color:var(--color-success);margin-top:4px;">✓ Hardware sensor ready: <b>${avail.label}</b></div>`;
+            } else {
+              hardwareNote = `<div style="font-size:11px;color:var(--color-warning);margin-top:4px;">⚠️ ${avail.reason || 'Hardware sensor not detected'}</div>`;
+            }
+          } catch (e) {}
         }
+
+        statusEl.innerHTML = (isLinked
+          ? `<div style="color:var(--color-success);font-weight:600;">✓ Fingerprint is currently registered for @${u}</div>`
+          : `<div style="color:var(--text-muted);">No fingerprint linked yet for @${u}</div>`) + hardwareNote;
       };
+
       if (select) {
         select.addEventListener('change', updateStatus);
-        updateStatus();
+        await updateStatus();
       }
     }, 50);
   },

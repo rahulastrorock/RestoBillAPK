@@ -10,6 +10,7 @@
   "dependencies": {
     "@capacitor/android": "^7.0.1",
     "@capacitor/cli": "^7.0.1",
-    "@capacitor/core": "^7.0.1"
+    "@capacitor/core": "^7.0.1",
+    "@capgo/capacitor-native-biometric": "^7.6.0"
   }
 }
