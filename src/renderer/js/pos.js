@@ -21,12 +21,47 @@ window.POS = {
 
   async init() {
     this.setupEventListeners();
+    this.initGridColumns();
     await Promise.all([
       this.loadData(),
       this.loadCustomers()
     ]);
     this.renderCategories();
     this.renderItems();
+  },
+
+  initGridColumns() {
+    const savedCols = localStorage.getItem('restobill_pos_grid_cols') || '2';
+    this.setGridColumns(savedCols === '4' ? '4' : '2');
+
+    const toggleBtn = document.getElementById('btn-toggle-grid-cols');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        const current = document.getElementById('pos-items-grid')?.classList.contains('cols-4') ? '4' : '2';
+        const next = current === '4' ? '2' : '4';
+        this.setGridColumns(next);
+      });
+    }
+  },
+
+  setGridColumns(cols) {
+    const grid = document.getElementById('pos-items-grid');
+    const toggleBtn = document.getElementById('btn-toggle-grid-cols');
+    const label = document.getElementById('grid-toggle-label');
+
+    if (cols === '4') {
+      grid?.classList.add('cols-4');
+      toggleBtn?.classList.add('active');
+      if (label) label.textContent = '2 Col';
+      toggleBtn?.setAttribute('title', 'Switch to 2 columns normal view');
+      localStorage.setItem('restobill_pos_grid_cols', '4');
+    } else {
+      grid?.classList.remove('cols-4');
+      toggleBtn?.classList.remove('active');
+      if (label) label.textContent = '4 Col';
+      toggleBtn?.setAttribute('title', 'Switch to 4 columns compact view');
+      localStorage.setItem('restobill_pos_grid_cols', '2');
+    }
   },
 
   setupEventListeners() {

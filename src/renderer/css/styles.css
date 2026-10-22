@@ -745,30 +745,39 @@ input, select, textarea, button {
 }
 
 .pos-search-bar {
-  padding: 12px 16px;
+  padding: 10px 14px;
   position: relative;
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pos-search-input-wrap {
+  position: relative;
+  flex: 1;
 }
 
 .search-icon {
   position: absolute;
-  left: 28px;
+  left: 12px;
   top: 50%;
   transform: translateY(-50%);
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   color: var(--text-muted);
+  pointer-events: none;
 }
 
 .pos-search-bar input {
   width: 100%;
-  padding: 10px 14px 10px 42px;
+  padding: 9px 12px 9px 36px;
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
   outline: none;
   transition: var(--transition-fast);
 }
@@ -780,6 +789,38 @@ input, select, textarea, button {
 
 .pos-search-bar input::placeholder {
   color: var(--text-muted);
+}
+
+.btn-grid-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: var(--transition-fast);
+  user-select: none;
+}
+
+.btn-grid-toggle:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--accent-primary);
+}
+
+.btn-grid-toggle.active {
+  background: rgba(249, 115, 22, 0.16);
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
+  box-shadow: 0 1px 4px var(--accent-primary-glow);
 }
 
 .pos-categories-wrapper {
@@ -3290,6 +3331,60 @@ input:checked + .switch-slider:before {
   /* When items are in cart, smoothly shift items up so floating bar doesn't obscure the last row */
   .pos-layout.has-cart .pos-items-grid {
     padding-bottom: calc(var(--mobile-safe-bottom) + 74px) !important;
+  }
+
+  /* 4 Columns Compact Grid Layout */
+  .pos-items-grid.cols-4 {
+    grid-template-columns: repeat(4, 1fr) !important;
+    padding: 6px 4px calc(var(--mobile-safe-bottom) + 12px) 4px !important;
+    gap: 5px !important;
+  }
+
+  .pos-layout.has-cart .pos-items-grid.cols-4 {
+    padding-bottom: calc(var(--mobile-safe-bottom) + 74px) !important;
+  }
+
+  .pos-items-grid.cols-4 .pos-item-card {
+    min-height: 74px !important;
+    padding: 5px 5px !important;
+    border-radius: var(--radius-sm) !important;
+  }
+
+  .pos-items-grid.cols-4 .item-card-top {
+    margin-bottom: 2px !important;
+  }
+
+  .pos-items-grid.cols-4 .item-veg-badge {
+    width: 10px !important;
+    height: 10px !important;
+    border-width: 1px !important;
+  }
+
+  .pos-items-grid.cols-4 .item-veg-badge::after {
+    width: 4px !important;
+    height: 4px !important;
+  }
+
+  .pos-items-grid.cols-4 .item-code {
+    font-size: 8.5px !important;
+    padding: 1px 2px !important;
+  }
+
+  .pos-items-grid.cols-4 .item-name {
+    font-size: 10.5px !important;
+    line-height: 1.2 !important;
+    max-height: 2.4em !important;
+    overflow: hidden !important;
+    display: -webkit-box !important;
+    -webkit-line-clamp: 2 !important;
+    -webkit-box-orient: vertical !important;
+    margin-bottom: 2px !important;
+    font-weight: 600 !important;
+  }
+
+  .pos-items-grid.cols-4 .item-price {
+    font-size: 11px !important;
+    font-weight: 800 !important;
   }
 
   /* When show-cart class is active: Show cart, hide menu */

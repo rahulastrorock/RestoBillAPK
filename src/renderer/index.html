@@ -203,8 +203,16 @@
             <!-- Left: Menu -->
             <div class="pos-menu-panel">
               <div class="pos-search-bar">
-                <svg class="search-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
-                <input type="text" id="pos-search" placeholder="Search menu items... (or type code)" autocomplete="off">
+                <div class="pos-search-input-wrap">
+                  <svg class="search-icon" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+                  <input type="text" id="pos-search" placeholder="Search menu items... (or type code)" autocomplete="off">
+                </div>
+                <button type="button" class="btn-grid-toggle" id="btn-toggle-grid-cols" title="Switch to 4 columns compact view">
+                  <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15">
+                    <path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+                  </svg>
+                  <span id="grid-toggle-label">4 Col</span>
+                </button>
               </div>
               <div class="pos-categories-wrapper">
                 <button type="button" class="category-scroll-btn" id="btn-cat-scroll-left" title="Scroll categories left">‹</button>
