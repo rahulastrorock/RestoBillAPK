@@ -359,10 +359,11 @@ window.App = {
   showLogin() {
     const loginScreen = document.getElementById('login-screen');
     const appShell = document.getElementById('app-shell');
-    const errorEl = document.getElementById('login-error');
+    const usernameInput = document.getElementById('login-username');
     const passwordInput = document.getElementById('login-password');
 
     if (errorEl) errorEl.classList.add('hidden');
+    if (usernameInput) usernameInput.value = '';
     if (passwordInput) passwordInput.value = '';
 
     if (loginScreen) {

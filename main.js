@@ -187,7 +187,11 @@ function initApp() {
   ReportService.init();
   SettingsService.init();
   PrintService.init();
-  GDriveService.init(userDataPath);
+  try {
+    GDriveService.init(userDataPath);
+  } catch (err) {
+    console.error('Failed to initialize Google Drive service:', err.message);
+  }
   setupAutoBackupScheduler();
 }
 
@@ -474,15 +478,26 @@ function registerIpcHandlers() {
   });
 
   // ── Printing ──────────────────────────────────────────────────
+  handleIpc('print:getPrinters', async () => {
+    try {
+      if (mainWindow && mainWindow.webContents) {
+        return await mainWindow.webContents.getPrintersAsync();
+      }
+    } catch (err) {
+      console.warn('Failed to get printers:', err.message);
+    }
+    return [];
+  });
+
   handleIpc('print:receipt', async (orderData, settings) => {
     const html = PrintService.generateReceiptHtml(orderData, settings);
-    await printHtml(html, 'receipt');
+    await printHtml(html, 'receipt', settings);
     return true;
   });
 
   handleIpc('print:invoice', async (orderData, settings) => {
     const html = PrintService.generateInvoiceHtml(orderData, settings);
-    await printHtml(html, 'invoice');
+    await printHtml(html, 'invoice', settings);
     return true;
   });
 
@@ -624,15 +639,17 @@ function registerIpcHandlers() {
 }
 
 // ─── Print Helper ────────────────────────────────────────────────
-function printHtml(html, type) {
+function printHtml(html, type, settings = {}) {
   return new Promise((resolve, reject) => {
     if (printWindow) {
-      printWindow.close();
+      try { printWindow.close(); } catch (e) {}
+      printWindow = null;
     }
 
+    const is58 = settings && settings.printer_width === '58';
     printWindow = new BrowserWindow({
       show: false,
-      width: type === 'receipt' ? 302 : 794,
+      width: type === 'receipt' ? (is58 ? 240 : 320) : 794,
       height: type === 'receipt' ? 900 : 1123,
       webPreferences: {
         contextIsolation: true,
@@ -642,22 +659,49 @@ function printHtml(html, type) {
     printWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
 
     printWindow.webContents.on('did-finish-load', () => {
-      const options = type === 'receipt'
-        ? { silent: true, printBackground: true, margins: { marginType: 'none' } }
-        : { silent: false, printBackground: true, margins: { marginType: 'default' } };
+      // Determine silent print:
+      // If silent_print is explicitly '0', then show dialog (silent: false). Default is true for receipt, false for invoice.
+      const isSilent = settings && settings.silent_print !== undefined
+        ? (settings.silent_print === '1' || settings.silent_print === true)
+        : (type === 'receipt');
+
+      const options = {
+        silent: isSilent,
+        printBackground: true,
+        margins: type === 'receipt' ? { marginType: 'none' } : { marginType: 'default' },
+      };
+
+      if (settings && settings.printer_device && typeof settings.printer_device === 'string' && settings.printer_device.trim()) {
+        options.deviceName = settings.printer_device.trim();
+      }
+
+      if (settings && settings.print_copies) {
+        const copies = parseInt(settings.print_copies, 10);
+        if (copies > 1) {
+          options.copies = copies;
+        }
+      }
 
       printWindow.webContents.print(options, (success, reason) => {
         if (printWindow) {
-          printWindow.close();
+          try { printWindow.close(); } catch (e) {}
           printWindow = null;
         }
         if (success) {
           resolve(true);
         } else {
-          // Don't reject on cancel
+          console.warn('Print action result:', reason || 'Cancelled or completed');
           resolve(false);
         }
       });
+    });
+
+    printWindow.webContents.on('did-fail-load', (e, code, desc) => {
+      if (printWindow) {
+        try { printWindow.close(); } catch (err) {}
+        printWindow = null;
+      }
+      reject(new Error(desc || 'Failed to load receipt HTML'));
     });
   });
 }

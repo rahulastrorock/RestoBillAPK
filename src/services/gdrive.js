@@ -1,6 +1,14 @@
-const { google } = require('googleapis');
 const fs = require('fs');
 const path = require('path');
+
+let _google = null;
+function getGoogle() {
+  if (!_google) {
+    const { google } = require('googleapis');
+    _google = google;
+  }
+  return _google;
+}
 
 /**
  * Google Drive Backup/Restore Service
@@ -32,6 +40,7 @@ class GDriveService {
         this._initClient();
         const token = JSON.parse(fs.readFileSync(this.tokenPath, 'utf-8'));
         this.auth.setCredentials(token);
+        const google = getGoogle();
         this.drive = google.drive({ version: 'v3', auth: this.auth });
         console.log('Google Drive: Authenticated from saved token');
         this._fetchUserInfo().catch(() => {});
@@ -101,6 +110,7 @@ class GDriveService {
       throw new Error('Invalid credentials file. Make sure it contains client_id and client_secret.');
     }
 
+    const google = getGoogle();
     this.auth = new google.auth.OAuth2(
       client_id,
       client_secret,
@@ -152,6 +162,7 @@ class GDriveService {
     // Save token
     fs.writeFileSync(this.tokenPath, JSON.stringify(tokens, null, 2));
 
+    const google = getGoogle();
     this.drive = google.drive({ version: 'v3', auth: this.auth });
     await this._fetchUserInfo();
 

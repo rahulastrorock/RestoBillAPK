@@ -10,17 +10,53 @@ class PrintService {
    * Generate HTML for thermal receipt (58mm/80mm)
    */
   generateReceiptHtml(order, settings = {}) {
-    const {
-      restaurant_name = 'Restaurant',
-      restaurant_address = '',
-      restaurant_phone = '',
-      restaurant_logo = '',
-      gstin = '',
-      fssai_no = '',
-      footer_text = 'Thank you! Visit again!',
-      printer_width = '80',
-      currency_symbol = '₹',
-    } = settings || {};
+    const s = settings || {};
+    const isEnabled = (val, defaultVal = true) => {
+      if (val === undefined || val === null || val === '') return defaultVal;
+      return val === '1' || val === true || val === 1 || val === 'true';
+    };
+
+    const restaurant_name = s.restaurant_name || 'Restaurant';
+    const restaurant_address = s.restaurant_address || '';
+    const restaurant_phone = s.restaurant_phone || '';
+    const restaurant_logo = s.restaurant_logo || '';
+    const gstin = s.gstin || '';
+    const fssai_no = s.fssai_no || '';
+    const footer_text = s.footer_text !== undefined ? s.footer_text : 'Thank you! Visit again!';
+    const terms_text = s.terms_text !== undefined ? s.terms_text : 'Goods once sold cannot be returned.';
+    const printer_width = s.printer_width || '80';
+    const currency_symbol = s.currency_symbol || '₹';
+    const receipt_header_title = s.receipt_header_title !== undefined ? s.receipt_header_title : 'TAX INVOICE';
+
+    // Granular Print Controls
+    const optShowLogo = isEnabled(s.print_show_logo, true);
+    const optShowRestaurantName = isEnabled(s.print_show_restaurant_name, true);
+    const optShowAddress = isEnabled(s.print_show_address, true);
+    const optShowPhone = isEnabled(s.print_show_phone, true);
+    const optShowGstin = isEnabled(s.print_show_gstin, true);
+    const optShowFssai = isEnabled(s.print_show_fssai, true);
+
+    const optShowOrderNo = isEnabled(s.print_show_order_no, true);
+    const optShowDate = isEnabled(s.print_show_date, true);
+    const optShowTable = isEnabled(s.print_show_table, true);
+    const optShowOrderType = isEnabled(s.print_show_order_type, true);
+    const optShowCashier = isEnabled(s.print_show_cashier, true);
+    const optShowCustomer = isEnabled(s.print_show_customer, true);
+    const optShowCustomerGstin = isEnabled(s.print_show_customer_gstin, true);
+
+    const optShowRate = isEnabled(s.print_show_rate, true);
+    const optShowHsn = isEnabled(s.show_hsn, true);
+    const optShowItemTax = isEnabled(s.print_show_item_tax, false);
+
+    const optShowSubtotal = isEnabled(s.print_show_subtotal, true);
+    const optShowTaxBreakdown = isEnabled(s.print_show_tax_breakdown, true);
+    const optShowPaymentMode = isEnabled(s.print_show_payment_mode, true);
+    const optShowNotes = isEnabled(s.print_show_notes, true);
+    const optShowAmountWords = isEnabled(s.print_show_amount_words, false);
+
+    const optShowFooter = isEnabled(s.print_show_footer, true);
+    const optShowTerms = isEnabled(s.print_show_terms, false);
+    const optShowBranding = isEnabled(s.print_show_branding, true);
 
     const width = printer_width === '58' ? '48mm' : '72mm';
     const fontSize = printer_width === '58' ? '10px' : '12px';
@@ -40,14 +76,36 @@ class PrintService {
     for (const item of (order.items || [])) {
       const qty = parseFloat(item.quantity || 1);
       const total = parseFloat(item.total || (item.price * qty));
+      const hsnLine = (optShowHsn && (item.hsn_code || item.hsn)) ? `<div style="font-size:${printer_width === '58' ? '8px' : '9px'}; color:#444;">HSN: ${item.hsn_code || item.hsn}</div>` : '';
+      const taxLine = (optShowItemTax && item.gst_rate) ? `<span style="font-size:9px; color:#444;"> (${item.gst_rate}%)</span>` : '';
+
       itemsHtml += `
         <tr>
-          <td style="text-align:left; padding:2px 0;">${item.name}</td>
+          <td style="text-align:left; padding:2px 0;">${item.name}${taxLine}${hsnLine}</td>
           <td style="text-align:center; padding:2px 0;">${qty}</td>
-          <td style="text-align:right; padding:2px 0;">${formatCurrency(item.price)}</td>
+          ${optShowRate ? `<td style="text-align:right; padding:2px 0;">${formatCurrency(item.price)}</td>` : ''}
           <td style="text-align:right; padding:2px 0;">${formatCurrency(total)}</td>
         </tr>`;
     }
+
+    const hasHeader = (optShowLogo && restaurant_logo) ||
+      (optShowRestaurantName && restaurant_name) ||
+      (optShowAddress && restaurant_address) ||
+      (optShowPhone && restaurant_phone) ||
+      (optShowGstin && gstin) ||
+      (optShowFssai && fssai_no);
+
+    const infoRows = [];
+    if (optShowOrderNo && order.order_no) infoRows.push(`<span>Bill No: ${order.order_no}</span>`);
+    if (optShowDate) infoRows.push(`<span>Date: ${formatDate(order.created_at)}</span>`);
+    if (optShowTable && order.table_no) infoRows.push(`<span>Table: ${order.table_no}</span>`);
+    if (optShowOrderType && order.order_type) infoRows.push(`<span>Type: ${order.order_type.replace('_', ' ').toUpperCase()}</span>`);
+    if (optShowCashier && order.user_name) infoRows.push(`<span>Cashier: ${order.user_name}</span>`);
+    if (optShowCustomer && (order.customer_name || order.customer_phone)) {
+      const cust = `${order.customer_name || ''}${order.customer_phone ? ` (${order.customer_phone})` : ''}`.trim();
+      if (cust) infoRows.push(`<span>Customer: ${cust}</span>`);
+    }
+    if (optShowCustomerGstin && order.customer_gstin) infoRows.push(`<span>Cust GSTIN: ${order.customer_gstin}</span>`);
 
     return `<!DOCTYPE html>
 <html>
@@ -93,43 +151,38 @@ class PrintService {
   </style>
 </head>
 <body>
+  ${hasHeader ? `
   <!-- Header -->
   <div class="center">
-    ${restaurant_logo ? `<div style="margin-bottom:6px;"><img src="${restaurant_logo}" alt="Logo" style="max-width:${printer_width === '58' ? '90px' : '130px'}; max-height:60px; object-fit:contain; filter:grayscale(100%);"></div>` : ''}
-    <div class="restaurant-name">${restaurant_name}</div>
-    ${restaurant_address ? `<div>${restaurant_address}</div>` : ''}
-    ${restaurant_phone ? `<div>Ph: ${restaurant_phone}</div>` : ''}
-    ${gstin ? `<div>GSTIN: ${gstin}</div>` : ''}
-    ${fssai_no ? `<div>FSSAI: ${fssai_no}</div>` : ''}
+    ${optShowLogo && restaurant_logo ? `<div style="margin-bottom:6px;"><img src="${restaurant_logo}" alt="Logo" style="max-width:${printer_width === '58' ? '90px' : '130px'}; max-height:60px; object-fit:contain; filter:grayscale(100%);"></div>` : ''}
+    ${optShowRestaurantName && restaurant_name ? `<div class="restaurant-name">${restaurant_name}</div>` : ''}
+    ${optShowAddress && restaurant_address ? `<div>${restaurant_address}</div>` : ''}
+    ${optShowPhone && restaurant_phone ? `<div>Ph: ${restaurant_phone}</div>` : ''}
+    ${optShowGstin && gstin ? `<div>GSTIN: ${gstin}</div>` : ''}
+    ${optShowFssai && fssai_no ? `<div>FSSAI: ${fssai_no}</div>` : ''}
   </div>
-
   <div class="double-divider"></div>
+  ` : ''}
+
+  <!-- Header Title -->
+  ${receipt_header_title && receipt_header_title.trim() ? `
+  <div class="center bold">${receipt_header_title.trim()}</div>
+  <div class="divider"></div>
+  ` : ''}
 
   <!-- Invoice Info -->
-  <div class="center bold">TAX INVOICE</div>
-  <div class="divider"></div>
+  ${infoRows.length > 0 ? `
+    ${infoRows.map(r => `<div class="info-row">${r}</div>`).join('')}
+    <div class="divider"></div>
+  ` : ''}
 
-  <div class="info-row">
-    <span>Bill No: ${order.order_no}</span>
-  </div>
-  <div class="info-row">
-    <span>Date: ${formatDate(order.created_at)}</span>
-  </div>
-  ${order.table_no ? `<div class="info-row"><span>Table: ${order.table_no}</span></div>` : ''}
-  ${order.order_type ? `<div class="info-row"><span>Type: ${order.order_type.replace('_', ' ').toUpperCase()}</span></div>` : ''}
-  ${order.user_name ? `<div class="info-row"><span>Cashier: ${order.user_name}</span></div>` : ''}
-  ${order.customer_name ? `<div class="info-row"><span>Customer: ${order.customer_name}</span></div>` : ''}
-  ${order.customer_gstin ? `<div class="info-row"><span>GSTIN: ${order.customer_gstin}</span></div>` : ''}
-
-  <div class="divider"></div>
-
-  <!-- Items -->
+  <!-- Items Table -->
   <table>
     <thead>
       <tr style="border-bottom: 1px dashed #000;">
         <th style="text-align:left; padding:2px 0;">Item</th>
         <th style="text-align:center; padding:2px 0;">Qty</th>
-        <th style="text-align:right; padding:2px 0;">Rate</th>
+        ${optShowRate ? `<th style="text-align:right; padding:2px 0;">Rate</th>` : ''}
         <th style="text-align:right; padding:2px 0;">Amt</th>
       </tr>
     </thead>
@@ -142,15 +195,17 @@ class PrintService {
 
   <!-- Totals -->
   <table>
+    ${optShowSubtotal ? `
     <tr>
       <td>Subtotal</td>
       <td class="right">${formatCurrency(order.subtotal || 0)}</td>
-    </tr>
+    </tr>` : ''}
     ${parseFloat(order.discount_amount || 0) > 0 ? `
     <tr>
       <td>Discount ${order.discount_type === 'percent' ? `(${order.discount_value}%)` : ''}</td>
       <td class="right">-${formatCurrency(order.discount_amount)}</td>
     </tr>` : ''}
+    ${optShowTaxBreakdown ? `
     <tr>
       <td>CGST</td>
       <td class="right">${formatCurrency(order.cgst || order.cgst_total || 0)}</td>
@@ -158,7 +213,7 @@ class PrintService {
     <tr>
       <td>SGST</td>
       <td class="right">${formatCurrency(order.sgst || order.sgst_total || 0)}</td>
-    </tr>
+    </tr>` : ''}
     ${parseFloat(order.round_off || 0) !== 0 ? `
     <tr>
       <td>Round Off</td>
@@ -175,17 +230,30 @@ class PrintService {
     </tr>
   </table>
 
+  ${optShowAmountWords ? `
+  <div style="font-size:${printer_width === '58' ? '8px' : '9px'}; font-style:italic; margin-top:3px; text-align:center;">
+    Rupees ${this._numberToWords(Math.round(parseFloat(order.total || 0)))} Only
+  </div>` : ''}
+
   <div class="double-divider"></div>
 
   <!-- Payment -->
+  ${optShowPaymentMode ? `
   <div class="info-row">
     <span>Payment: ${(order.payment_mode || 'cash').toUpperCase()}</span>
   </div>
   ${order.payment_details ? `<div class="info-row"><span>${order.payment_details}</span></div>` : ''}
+  ` : ''}
 
-  <div class="divider"></div>
+  ${optShowNotes && order.notes ? `
+  <div class="info-row" style="font-style:italic;">
+    <span>Note: ${order.notes}</span>
+  </div>
+  ` : ''}
 
   <!-- GST Summary -->
+  ${optShowTaxBreakdown ? `
+  <div class="divider"></div>
   <div class="center bold" style="margin:4px 0;">GST Summary</div>
   <table style="font-size: ${printer_width === '58' ? '9px' : '10px'};">
     <thead>
@@ -200,16 +268,18 @@ class PrintService {
       ${this._getGstSummaryRows(order.items, currency_symbol)}
     </tbody>
   </table>
+  ` : ''}
 
   <div class="divider"></div>
 
   <!-- Footer -->
-  <div class="center" style="margin-top:8px;">
-    <div>${footer_text}</div>
-    ${order.notes ? `<div style="margin-top:4px; font-style:italic;">${order.notes}</div>` : ''}
+  <div class="center" style="margin-top:6px;">
+    ${optShowFooter && footer_text ? `<div style="font-weight:600;">${footer_text}</div>` : ''}
+    ${optShowTerms && terms_text ? `<div style="margin-top:4px; font-size:${printer_width === '58' ? '8px' : '9px'}; color:#444;">${terms_text}</div>` : ''}
+    ${optShowBranding ? `<div style="margin-top:6px; font-size:${printer_width === '58' ? '8px' : '9px'}; color:#555;">Made with ❤️ by astrorock</div>` : ''}
   </div>
 
-  <div style="margin-top: 16px;"></div>
+  <div style="margin-top: 14px;"></div>
 </body>
 </html>`;
   }
@@ -218,18 +288,44 @@ class PrintService {
    * Generate HTML for A4 Tax Invoice
    */
   generateInvoiceHtml(order, settings = {}) {
-    const {
-      restaurant_name = 'Restaurant',
-      restaurant_address = '',
-      restaurant_phone = '',
-      restaurant_email = '',
-      restaurant_logo = '',
-      gstin = '',
-      fssai_no = '',
-      state_name = '',
-      state_code = '',
-      currency_symbol = '₹',
-    } = settings || {};
+    const s = settings || {};
+    const isEnabled = (val, defaultVal = true) => {
+      if (val === undefined || val === null || val === '') return defaultVal;
+      return val === '1' || val === true || val === 1 || val === 'true';
+    };
+
+    const restaurant_name = s.restaurant_name || 'Restaurant';
+    const restaurant_address = s.restaurant_address || '';
+    const restaurant_phone = s.restaurant_phone || '';
+    const restaurant_email = s.restaurant_email || '';
+    const restaurant_logo = s.restaurant_logo || '';
+    const gstin = s.gstin || '';
+    const fssai_no = s.fssai_no || '';
+    const state_name = s.state_name || '';
+    const state_code = s.state_code || '';
+    const currency_symbol = s.currency_symbol || '₹';
+    const footer_text = s.footer_text !== undefined ? s.footer_text : 'Thank you! Visit again!';
+    const terms_text = s.terms_text !== undefined ? s.terms_text : 'Goods once sold cannot be returned.';
+    const receipt_header_title = s.receipt_header_title !== undefined ? s.receipt_header_title : 'TAX INVOICE';
+
+    const optShowLogo = isEnabled(s.print_show_logo, true);
+    const optShowRestaurantName = isEnabled(s.print_show_restaurant_name, true);
+    const optShowAddress = isEnabled(s.print_show_address, true);
+    const optShowPhone = isEnabled(s.print_show_phone, true);
+    const optShowGstin = isEnabled(s.print_show_gstin, true);
+    const optShowFssai = isEnabled(s.print_show_fssai, true);
+
+    const optShowTable = isEnabled(s.print_show_table, true);
+    const optShowOrderType = isEnabled(s.print_show_order_type, true);
+    const optShowCashier = isEnabled(s.print_show_cashier, true);
+    const optShowCustomer = isEnabled(s.print_show_customer, true);
+    const optShowCustomerGstin = isEnabled(s.print_show_customer_gstin, true);
+
+    const optShowAmountWords = isEnabled(s.print_show_amount_words, true);
+    const optShowPaymentMode = isEnabled(s.print_show_payment_mode, true);
+    const optShowFooter = isEnabled(s.print_show_footer, true);
+    const optShowTerms = isEnabled(s.print_show_terms, false);
+    const optShowBranding = isEnabled(s.print_show_branding, true);
 
     const formatDate = (dateStr) => {
       const d = new Date(dateStr || Date.now());
@@ -315,7 +411,7 @@ class PrintService {
       font-weight: bold; font-size: 14px; 
       border-top: 2px solid #333; padding-top: 8px;
     }
-    .footer { margin-top: 30px; display: flex; justify-content: space-between; }
+    .footer { margin-top: 24px; display: flex; justify-content: space-between; align-items: flex-end; }
     .footer-left { font-size: 11px; color: #666; }
     .signature { text-align: right; }
     .signature-line { border-top: 1px solid #333; width: 200px; margin-top: 40px; padding-top: 5px; }
@@ -330,14 +426,14 @@ class PrintService {
     <!-- Header -->
     <div class="header" style="display:flex; align-items:flex-start; justify-content:space-between; gap:20px;">
       <div style="display:flex; align-items:flex-start; gap:16px;">
-        ${restaurant_logo ? `<img src="${restaurant_logo}" alt="Logo" style="max-height:80px; max-width:140px; object-fit:contain; border-radius:4px;">` : ''}
+        ${optShowLogo && restaurant_logo ? `<img src="${restaurant_logo}" alt="Logo" style="max-height:80px; max-width:140px; object-fit:contain; border-radius:4px;">` : ''}
         <div class="header-left">
-          <div class="restaurant-name">${restaurant_name}</div>
-          <p>${restaurant_address}</p>
-          ${restaurant_phone ? `<p>Phone: ${restaurant_phone}</p>` : ''}
+          ${optShowRestaurantName ? `<div class="restaurant-name">${restaurant_name}</div>` : ''}
+          ${optShowAddress && restaurant_address ? `<p>${restaurant_address}</p>` : ''}
+          ${optShowPhone && restaurant_phone ? `<p>Phone: ${restaurant_phone}</p>` : ''}
           ${restaurant_email ? `<p>Email: ${restaurant_email}</p>` : ''}
-          ${gstin ? `<p><strong>GSTIN:</strong> ${gstin}</p>` : ''}
-          ${fssai_no ? `<p><strong>FSSAI:</strong> ${fssai_no}</p>` : ''}
+          ${optShowGstin && gstin ? `<p><strong>GSTIN:</strong> ${gstin}</p>` : ''}
+          ${optShowFssai && fssai_no ? `<p><strong>FSSAI:</strong> ${fssai_no}</p>` : ''}
           ${state_name ? `<p><strong>State:</strong> ${state_name} (${state_code})</p>` : ''}
         </div>
       </div>
@@ -346,7 +442,7 @@ class PrintService {
       </div>
     </div>
 
-    <div class="invoice-title">TAX INVOICE</div>
+    <div class="invoice-title">${receipt_header_title && receipt_header_title.trim() ? receipt_header_title.trim() : 'TAX INVOICE'}</div>
 
     <!-- Invoice & Customer Info -->
     <div class="info-grid">
@@ -354,15 +450,17 @@ class PrintService {
         <h4>Invoice Details</h4>
         <p><strong>Invoice No:</strong> ${order.order_no}</p>
         <p><strong>Date:</strong> ${formatDate(order.created_at)}</p>
-        ${order.table_no ? `<p><strong>Table:</strong> ${order.table_no}</p>` : ''}
-        <p><strong>Type:</strong> ${(order.order_type || 'dine_in').replace('_', ' ').toUpperCase()}</p>
-        <p><strong>Cashier:</strong> ${order.user_name || '-'}</p>
+        ${optShowTable && order.table_no ? `<p><strong>Table:</strong> ${order.table_no}</p>` : ''}
+        ${optShowOrderType ? `<p><strong>Type:</strong> ${(order.order_type || 'dine_in').replace('_', ' ').toUpperCase()}</p>` : ''}
+        ${optShowCashier && order.user_name ? `<p><strong>Cashier:</strong> ${order.user_name}</p>` : ''}
       </div>
       <div class="info-section" style="text-align:right;">
         <h4>Customer Details</h4>
-        <p>${order.customer_name || 'Walk-in Customer'}</p>
-        ${order.customer_phone ? `<p>Phone: ${order.customer_phone}</p>` : ''}
-        ${order.customer_gstin ? `<p><strong>GSTIN:</strong> ${order.customer_gstin}</p>` : ''}
+        ${optShowCustomer ? `
+          <p>${order.customer_name || 'Walk-in Customer'}</p>
+          ${order.customer_phone ? `<p>Phone: ${order.customer_phone}</p>` : ''}
+        ` : '<p>Walk-in Customer</p>'}
+        ${optShowCustomerGstin && order.customer_gstin ? `<p><strong>GSTIN:</strong> ${order.customer_gstin}</p>` : ''}
       </div>
     </div>
 
@@ -389,8 +487,10 @@ class PrintService {
     <!-- Totals -->
     <div class="totals-section">
       <div class="amount-words">
+        ${optShowAmountWords ? `
         <strong>Amount in words:</strong><br>
         Rupees ${totalInWords} Only
+        ` : ''}
       </div>
       <table class="totals-table">
         <tr>
@@ -427,15 +527,30 @@ class PrintService {
     </div>
 
     <!-- Payment & Footer -->
+    ${optShowPaymentMode ? `
     <div style="margin-top:10px; padding:8px; background:#f9f9f9; border:1px solid #eee;">
       <strong>Payment Mode:</strong> ${(order.payment_mode || 'cash').toUpperCase()}
       ${order.payment_details ? ` | ${order.payment_details}` : ''}
     </div>
+    ` : ''}
+
+    ${optShowFooter && footer_text ? `
+    <div style="margin-top:10px; text-align:center; font-weight:600; color:#444;">
+      ${footer_text}
+    </div>
+    ` : ''}
+
+    ${optShowTerms && terms_text ? `
+    <div style="margin-top:6px; font-size:10px; color:#666;">
+      <strong>Terms & Conditions:</strong> ${terms_text}
+    </div>
+    ` : ''}
 
     <div class="footer">
       <div class="footer-left">
         <p>This is a computer-generated invoice.</p>
         ${gstin ? '<p>Subject to jurisdiction of local courts.</p>' : ''}
+        ${optShowBranding ? '<p style="margin-top:4px; font-size:10px; color:#888;">Made with ❤️ by astrorock</p>' : ''}
       </div>
       <div class="signature">
         <div class="signature-line">Authorized Signatory</div>

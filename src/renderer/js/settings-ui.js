@@ -297,87 +297,617 @@ window.SettingsUI = {
     });
   },
 
-  renderPrinterTab(container) {
+  async renderPrinterTab(container) {
     const s = this.settings;
+    const isChecked = (val, defaultVal = true) => {
+      if (val === undefined || val === null || val === '') return defaultVal;
+      return val === '1' || val === true || val === 1 || val === 'true';
+    };
+
+    // Load installed printers
+    let installedPrinters = [];
+    try {
+      if (window.api?.print?.getPrinters) {
+        const res = await window.api.print.getPrinters();
+        if (res && res.success && Array.isArray(res.data)) {
+          installedPrinters = res.data;
+        }
+      }
+    } catch (err) {
+      console.warn('Could not load printers:', err);
+    }
+
     container.innerHTML = `
       <div class="settings-section">
-        <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">Thermal Printer Setup</h3>
-        <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">
-          Configure ESC/POS thermal receipt printer options, paper width, and footer text.
-        </p>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+          <div>
+            <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;border-bottom:none;padding-bottom:0;">Printer & Print Content Controls</h3>
+            <p style="color:var(--text-muted);font-size:13px;margin:0;">
+              Choose your printer device, customize exactly what prints on your bills & receipts, and preview live.
+            </p>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button type="button" class="btn btn-outline" id="btn-top-test-print">🖨️ Test Print</button>
+            <button type="button" class="btn btn-primary" id="btn-top-save-printer">Save Settings</button>
+          </div>
+        </div>
 
         <form id="settings-printer-form">
-          <div class="modal-body" style="padding:0;overflow:visible;">
-            <div class="form-row">
-              <div class="form-group">
-                <label>Printer Type</label>
-                <select name="printer_type">
-                  <option value="thermal" ${s.printer_type === 'thermal' ? 'selected' : ''}>ESC/POS Thermal Printer</option>
-                  <option value="standard" ${s.printer_type === 'standard' ? 'selected' : ''}>Standard A4/A5 Laser/Inkjet</option>
-                </select>
+          <div class="printer-settings-container">
+            <!-- Left Column: Controls & Toggles -->
+            <div class="printer-settings-main">
+
+              <!-- 1. Printer Hardware & Connection -->
+              <div class="printer-card">
+                <div class="printer-card-header">
+                  <div class="printer-card-title">
+                    <span>🖨️</span>
+                    <span>Printer Hardware & Connection</span>
+                  </div>
+                  <span class="printer-card-badge">Hardware</span>
+                </div>
+
+                <div class="form-row" style="margin-bottom:14px;">
+                  <div class="form-group" style="flex:2;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                      <label style="margin:0;">Target Printer Device</label>
+                      <button type="button" id="btn-refresh-printers" style="background:none;border:none;color:var(--accent-primary);font-size:11px;cursor:pointer;display:flex;align-items:center;gap:4px;">
+                        🔄 Refresh List
+                      </button>
+                    </div>
+                    <select name="printer_device" id="printer-device-select">
+                      <option value="" ${!s.printer_device ? 'selected' : ''}>System Default Printer</option>
+                      ${installedPrinters.map(p => `
+                        <option value="${p.name}" ${s.printer_device === p.name ? 'selected' : ''}>
+                          ${p.displayName || p.name} ${p.isDefault ? '(Default)' : ''}
+                        </option>
+                      `).join('')}
+                    </select>
+                  </div>
+                  <div class="form-group" style="flex:1;">
+                    <label>Printer Type</label>
+                    <select name="printer_type" id="printer-type-select">
+                      <option value="thermal" ${s.printer_type !== 'standard' ? 'selected' : ''}>ESC/POS Thermal Receipt</option>
+                      <option value="standard" ${s.printer_type === 'standard' ? 'selected' : ''}>Standard A4/A5 Laser/Inkjet</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-row">
+                  <div class="form-group">
+                    <label>Thermal Paper Width</label>
+                    <select name="printer_width" id="printer-width-select">
+                      <option value="80" ${s.printer_width !== '58' ? 'selected' : ''}>80mm (Standard 3-Inch POS)</option>
+                      <option value="58" ${s.printer_width === '58' ? 'selected' : ''}>58mm (Compact 2-Inch Thermal)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>Print Execution Mode</label>
+                    <select name="silent_print">
+                      <option value="1" ${s.silent_print !== '0' ? 'selected' : ''}>Direct Silent Print (No Dialog, Instant)</option>
+                      <option value="0" ${s.silent_print === '0' ? 'selected' : ''}>Show Windows Print Dialog Each Time</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div class="form-row" style="margin-top:14px;">
+                  <div class="form-group">
+                    <label>Number of Copies</label>
+                    <select name="print_copies">
+                      <option value="1" ${s.print_copies !== '2' ? 'selected' : ''}>1 Copy (Customer Bill)</option>
+                      <option value="2" ${s.print_copies === '2' ? 'selected' : ''}>2 Copies (Customer + Merchant/Kitchen)</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label>POS Auto-Print on Settle</label>
+                    <select name="auto_print_on_save">
+                      <option value="0" ${s.auto_print_on_save !== '1' ? 'selected' : ''}>Manual Print (Only when F4 Save & Print clicked)</option>
+                      <option value="1" ${s.auto_print_on_save === '1' ? 'selected' : ''}>Auto-Print (Print whenever order is saved / settled)</option>
+                    </select>
+                  </div>
+                </div>
               </div>
-              <div class="form-group">
-                <label>Paper Width</label>
-                <select name="printer_width">
-                  <option value="80" ${s.printer_width === '80' ? 'selected' : ''}>80mm (Standard POS)</option>
-                  <option value="58" ${s.printer_width === '58' ? 'selected' : ''}>58mm (Compact Mobile/Desktop)</option>
-                </select>
+
+              <!-- 2. Header & Business Details -->
+              <div class="printer-card">
+                <div class="printer-card-header">
+                  <div class="printer-card-title">
+                    <span>🏢</span>
+                    <span>Receipt Header & Business Info</span>
+                  </div>
+                  <span class="printer-card-badge">Header</span>
+                </div>
+
+                <div class="form-group" style="margin-bottom:14px;">
+                  <label>Receipt Header Title</label>
+                  <input type="text" name="receipt_header_title" id="input-receipt-header-title" value="${s.receipt_header_title !== undefined ? s.receipt_header_title : 'TAX INVOICE'}" placeholder="e.g. TAX INVOICE, RESTAURANT BILL, CASH RECEIPT">
+                </div>
+
+                <div class="printer-toggles-grid">
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Restaurant Logo</span>
+                      <span class="printer-toggle-desc">Print uploaded logo at top</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_logo" ${isChecked(s.print_show_logo, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Restaurant Name</span>
+                      <span class="printer-toggle-desc">Print business name heading</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_restaurant_name" ${isChecked(s.print_show_restaurant_name, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Restaurant Address</span>
+                      <span class="printer-toggle-desc">Print outlet address text</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_address" ${isChecked(s.print_show_address, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Phone Number</span>
+                      <span class="printer-toggle-desc">Print restaurant contact number</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_phone" ${isChecked(s.print_show_phone, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">GSTIN Number</span>
+                      <span class="printer-toggle-desc">Print GST registration number</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_gstin" ${isChecked(s.print_show_gstin, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">FSSAI License No.</span>
+                      <span class="printer-toggle-desc">Print food safety license</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_fssai" ${isChecked(s.print_show_fssai, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <!-- 3. Order & Customer Info -->
+              <div class="printer-card">
+                <div class="printer-card-header">
+                  <div class="printer-card-title">
+                    <span>🧾</span>
+                    <span>Order & Customer Information</span>
+                  </div>
+                  <span class="printer-card-badge">Order Meta</span>
+                </div>
+
+                <div class="printer-toggles-grid">
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Bill / Order Number</span>
+                      <span class="printer-toggle-desc">Print invoice identifier (e.g. INV-001)</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_order_no" ${isChecked(s.print_show_order_no, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Date & Time</span>
+                      <span class="printer-toggle-desc">Print transaction timestamp</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_date" ${isChecked(s.print_show_date, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Table Number</span>
+                      <span class="printer-toggle-desc">Print dining table identifier</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_table" ${isChecked(s.print_show_table, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Order Type</span>
+                      <span class="printer-toggle-desc">Print Dine-In, Takeaway, Delivery</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_order_type" ${isChecked(s.print_show_order_type, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Cashier / Staff Name</span>
+                      <span class="printer-toggle-desc">Print logged-in operator name</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_cashier" ${isChecked(s.print_show_cashier, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Customer Name & Phone</span>
+                      <span class="printer-toggle-desc">Print guest customer details</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_customer" ${isChecked(s.print_show_customer, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Customer GSTIN</span>
+                      <span class="printer-toggle-desc">Print B2B customer GSTIN</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_customer_gstin" ${isChecked(s.print_show_customer_gstin, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <!-- 4. Items & Pricing Controls -->
+              <div class="printer-card">
+                <div class="printer-card-header">
+                  <div class="printer-card-title">
+                    <span>📋</span>
+                    <span>Item Columns & Pricing Summary</span>
+                  </div>
+                  <span class="printer-card-badge">Line Items</span>
+                </div>
+
+                <div class="printer-toggles-grid">
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Unit Rate / Price Column</span>
+                      <span class="printer-toggle-desc">Show item unit price column</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_rate" ${isChecked(s.print_show_rate, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">HSN / SAC Codes</span>
+                      <span class="printer-toggle-desc">Print HSN code under each item</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="show_hsn" ${isChecked(s.show_hsn, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Item Tax Rate (GST %)</span>
+                      <span class="printer-toggle-desc">Print GST rate tag next to items</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_item_tax" ${isChecked(s.print_show_item_tax, false) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Subtotal Row</span>
+                      <span class="printer-toggle-desc">Print subtotal before taxes</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_subtotal" ${isChecked(s.print_show_subtotal, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">GST Summary Breakdown</span>
+                      <span class="printer-toggle-desc">Print CGST / SGST rates table</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_tax_breakdown" ${isChecked(s.print_show_tax_breakdown, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Payment Mode</span>
+                      <span class="printer-toggle-desc">Print Cash / UPI / Card mode</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_payment_mode" ${isChecked(s.print_show_payment_mode, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Amount in Words</span>
+                      <span class="printer-toggle-desc">Print Rupees in words text</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_amount_words" ${isChecked(s.print_show_amount_words, false) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Order Notes / Kitchen Notes</span>
+                      <span class="printer-toggle-desc">Print special instructions</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_notes" ${isChecked(s.print_show_notes, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              <!-- 5. Footer, Terms & Branding -->
+              <div class="printer-card">
+                <div class="printer-card-header">
+                  <div class="printer-card-title">
+                    <span>💬</span>
+                    <span>Footer Message, Terms & Branding</span>
+                  </div>
+                  <span class="printer-card-badge">Footer</span>
+                </div>
+
+                <div class="printer-toggles-grid" style="margin-bottom:14px;">
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Show Footer Message</span>
+                      <span class="printer-toggle-desc">Print thank you message</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_footer" ${isChecked(s.print_show_footer, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Show Terms & Conditions</span>
+                      <span class="printer-toggle-desc">Print disclaimer & policy text</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_terms" ${isChecked(s.print_show_terms, false) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+
+                  <label class="printer-toggle-item">
+                    <div class="printer-toggle-info">
+                      <span class="printer-toggle-title">Show Branding Footer</span>
+                      <span class="printer-toggle-desc">"Made with ❤️ by astrorock"</span>
+                    </div>
+                    <div class="switch">
+                      <input type="checkbox" name="print_show_branding" ${isChecked(s.print_show_branding, true) ? 'checked' : ''}>
+                      <span class="switch-slider"></span>
+                    </div>
+                  </label>
+                </div>
+
+                <div class="form-group" style="margin-bottom:12px;">
+                  <label>Receipt Footer Note</label>
+                  <input type="text" name="footer_text" id="input-footer-text" value="${s.footer_text || 'Thank you! Visit again!'}" placeholder="e.g. Thank you for dining with us!">
+                </div>
+
+                <div class="form-group">
+                  <label>Terms & Conditions / Disclaimer Note</label>
+                  <textarea name="terms_text" id="input-terms-text" rows="2" placeholder="e.g. Goods once sold cannot be returned. Please retain bill for queries.">${s.terms_text || 'Goods once sold cannot be returned.'}</textarea>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Right Column: Live Sticky Thermal Receipt Preview -->
+            <div class="printer-preview-sidebar">
+              <div class="printer-preview-container-box">
+                <div class="printer-preview-topbar">
+                  <div class="printer-preview-topbar-title">
+                    <span>👁️</span>
+                    <span>Live Receipt Preview</span>
+                  </div>
+                  <span id="preview-width-badge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:var(--accent-primary-glow);color:var(--accent-primary);">
+                    ${s.printer_width === '58' ? '58mm' : '80mm'}
+                  </span>
+                </div>
+
+                <div class="printer-preview-paper-card ${s.printer_width === '58' ? 'width-58' : 'width-80'}" id="preview-paper-box">
+                  <iframe id="printer-live-preview-frame" class="printer-preview-iframe" sandbox="allow-same-origin allow-scripts"></iframe>
+                </div>
+
+                <div style="display:flex;flex-direction:column;gap:8px;margin-top:6px;">
+                  <button type="button" class="btn btn-outline" id="btn-sidebar-test-print" style="width:100%;justify-content:center;">
+                    🖨️ Test Print Receipt
+                  </button>
+                  <button type="submit" class="btn btn-primary" id="btn-sidebar-save" style="width:100%;justify-content:center;">
+                    💾 Save Printer Settings
+                  </button>
+                </div>
               </div>
             </div>
 
-            <div class="form-group">
-              <label>Receipt Footer Note</label>
-              <input type="text" name="footer_text" value="${s.footer_text || 'Thank you! Visit again!'}" placeholder="e.g. Thank you for dining with us!">
-            </div>
-
-            <div class="form-group">
-              <label>HSN / SAC on Thermal Receipt</label>
-              <select name="show_hsn">
-                <option value="1" ${s.show_hsn === '1' ? 'selected' : ''}>Show HSN/SAC code</option>
-                <option value="0" ${s.show_hsn === '0' ? 'selected' : ''}>Hide HSN/SAC code</option>
-              </select>
-            </div>
-          </div>
-
-          <div style="margin-top:24px;display:flex;justify-content:space-between;align-items:center;">
-            <button type="button" class="btn btn-outline" id="btn-test-print">🖨️ Test Print Receipt</button>
-            <button type="submit" class="btn btn-primary">Save Printer Settings</button>
           </div>
         </form>
       </div>
     `;
 
-    document.getElementById('settings-printer-form')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      const data = Object.fromEntries(formData.entries());
-      this.saveBulk(data);
-    });
+    // Sample order used for live preview and test prints
+    const sampleOrder = {
+      order_no: 'INV-2026-0042',
+      order_type: 'dine_in',
+      table_no: 'T-04',
+      user_name: 'Rahul (Cashier)',
+      customer_name: 'Vikram Sharma',
+      customer_phone: '9876543210',
+      customer_gstin: '07AAAAA0000A1Z5',
+      created_at: new Date().toISOString(),
+      items: [
+        { name: 'Paneer Butter Masala', quantity: 1, price: 280, total: 280, gst_rate: 5, hsn_code: '996331' },
+        { name: 'Butter Garlic Naan', quantity: 3, price: 50, total: 150, gst_rate: 5, hsn_code: '996331' },
+        { name: 'Jeera Rice', quantity: 1, price: 160, total: 160, gst_rate: 5, hsn_code: '996331' }
+      ],
+      subtotal: 590,
+      discount_type: 'percent',
+      discount_value: 10,
+      discount_amount: 59,
+      taxable_amount: 505.71,
+      cgst: 12.64,
+      sgst: 12.64,
+      round_off: -0.28,
+      total: 531,
+      payment_mode: 'upi',
+      payment_details: 'GPay Ref #4029184',
+      notes: 'Extra spicy, serve hot'
+    };
 
-    document.getElementById('btn-test-print')?.addEventListener('click', async () => {
-      const sampleOrder = {
-        order_no: 'INV-TEST-000001',
-        order_type: 'dine_in',
-        table_no: '1',
-        customer_name: 'Test Customer',
-        created_at: new Date().toISOString(),
-        items: [
-          { name: 'Paneer Butter Masala', quantity: 1, price: 260, total: 260 },
-          { name: 'Butter Naan', quantity: 2, price: 45, total: 90 }
-        ],
-        subtotal: 350,
-        discount_amount: 0,
-        cgst: 8.75,
-        sgst: 8.75,
-        total: 350,
-        payment_mode: 'cash'
-      };
+    // Helper: Collect current form values
+    const getFormSettings = () => {
+      const form = document.getElementById('settings-printer-form');
+      if (!form) return this.settings;
+      const formData = new FormData(form);
+      const data = Object.fromEntries(formData.entries());
+
+      // Collect all checkboxes explicitly (unchecked checkboxes are not in FormData)
+      form.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+        data[cb.name] = cb.checked ? '1' : '0';
+      });
+
+      return { ...this.settings, ...data };
+    };
+
+    // Helper: Update live preview iframe
+    const updatePreview = async () => {
+      const previewFrame = document.getElementById('printer-live-preview-frame');
+      const paperBox = document.getElementById('preview-paper-box');
+      const widthBadge = document.getElementById('preview-width-badge');
+      if (!previewFrame) return;
+
+      const currentS = getFormSettings();
+
+      if (paperBox) {
+        if (currentS.printer_width === '58') {
+          paperBox.className = 'printer-preview-paper-card width-58';
+        } else {
+          paperBox.className = 'printer-preview-paper-card width-80';
+        }
+      }
+      if (widthBadge) {
+        widthBadge.textContent = currentS.printer_type === 'standard' ? 'A4 Invoice' : (currentS.printer_width === '58' ? '58mm' : '80mm');
+      }
 
       try {
-        await window.api.print.receipt(sampleOrder, this.settings);
-        window.App.showToast('Test receipt sent to printer', 'success');
+        const previewType = currentS.printer_type === 'standard' ? 'invoice' : 'receipt';
+        const res = await window.api.print.getPreview(sampleOrder, currentS, previewType);
+        const html = (res && typeof res === 'object' && res.data) ? res.data : (typeof res === 'string' ? res : '');
+        previewFrame.srcdoc = html;
+      } catch (err) {
+        console.error('Failed to render live preview:', err);
+      }
+    };
+
+    // Initial preview render
+    await updatePreview();
+
+    // Re-render preview on any form input/change
+    const form = document.getElementById('settings-printer-form');
+    if (form) {
+      form.addEventListener('input', () => updatePreview());
+      form.addEventListener('change', () => updatePreview());
+
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const data = getFormSettings();
+        await this.saveBulk(data);
+      });
+    }
+
+    // Top action buttons
+    document.getElementById('btn-top-save-printer')?.addEventListener('click', () => {
+      form?.requestSubmit();
+    });
+
+    const triggerTestPrint = async () => {
+      const currentS = getFormSettings();
+      try {
+        window.App.showToast('Sending test receipt to printer...', 'info');
+        if (currentS.printer_type === 'standard') {
+          await window.api.print.invoice(sampleOrder, currentS);
+        } else {
+          await window.api.print.receipt(sampleOrder, currentS);
+        }
+        window.App.showToast('Test print sent to printer successfully!', 'success');
       } catch (err) {
         window.App.showToast('Test print failed: ' + err.message, 'error');
+      }
+    };
+
+    document.getElementById('btn-top-test-print')?.addEventListener('click', triggerTestPrint);
+    document.getElementById('btn-sidebar-test-print')?.addEventListener('click', triggerTestPrint);
+
+    // Refresh Printers button
+    document.getElementById('btn-refresh-printers')?.addEventListener('click', async () => {
+      const select = document.getElementById('printer-device-select');
+      if (!select) return;
+      try {
+        window.App.showToast('Scanning printers...', 'info');
+        const res = await window.api.print.getPrinters();
+        if (res && res.success && Array.isArray(res.data)) {
+          const currentVal = select.value;
+          select.innerHTML = `
+            <option value="">System Default Printer</option>
+            ${res.data.map(p => `
+              <option value="${p.name}" ${currentVal === p.name ? 'selected' : ''}>
+                ${p.displayName || p.name} ${p.isDefault ? '(Default)' : ''}
+              </option>
+            `).join('')}
+          `;
+          window.App.showToast(`Found ${res.data.length} printer(s)`, 'success');
+        }
+      } catch (e) {
+        window.App.showToast('Could not refresh printers: ' + e.message, 'error');
       }
     });
   },

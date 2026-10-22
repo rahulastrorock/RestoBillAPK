@@ -9,7 +9,10 @@
     "rebuild": "electron-rebuild -f -w better-sqlite3",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "build": "electron-builder --win",
-    "build:portable": "electron-builder --win portable"
+    "build:portable": "electron-builder --win portable",
+    "mobile:sync": "cap sync android",
+    "mobile:open": "cap open android",
+    "mobile:build": "cap sync android && cd android && .\\gradlew.bat assembleDebug"
   },
   "build": {
     "appId": "com.restobill.app",
@@ -21,13 +24,19 @@
       "main.js",
       "preload.js",
       "src/**/*",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      {
+        "from": "node_modules/call-bind-apply-helpers",
+        "to": "node_modules/call-bind-apply-helpers"
+      }
     ],
     "win": {
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "src/renderer/assets/icon.ico"
@@ -43,13 +52,22 @@
     }
   },
   "dependencies": {
-    "better-sqlite3": "^11.6.0",
     "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^11.6.0",
+    "call-bind-apply-helpers": "^1.0.2",
+    "chart.js": "^4.4.6",
+    "dunder-proto": "^1.0.1",
     "googleapis": "^144.0.0",
     "pdfmake": "^0.2.13",
-    "chart.js": "^4.4.6"
+    "side-channel-list": "^1.0.1",
+    "side-channel-map": "^1.0.1",
+    "side-channel-weakmap": "^1.0.2",
+    "sql.js": "^1.15.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/cli": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
     "electron-rebuild": "^3.2.9"

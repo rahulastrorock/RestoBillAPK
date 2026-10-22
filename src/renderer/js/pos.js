@@ -623,7 +623,8 @@ window.POS = {
   },
 
   async handleSaveOrder() {
-    return this.submitOrder(false);
+    const autoPrint = window.App.settings?.auto_print_on_save === '1';
+    return this.submitOrder(autoPrint);
   },
 
   async handleSaveAndPrint() {

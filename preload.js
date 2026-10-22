@@ -137,6 +137,8 @@ contextBridge.exposeInMainWorld('api', {
 
   // ── Printing ──────────────────────────────────────────────────
   print: {
+    getPrinters: () =>
+      ipcRenderer.invoke('print:getPrinters'),
     receipt: (orderData, settings) =>
       ipcRenderer.invoke('print:receipt', orderData, settings),
     invoice: (orderData, settings) =>
