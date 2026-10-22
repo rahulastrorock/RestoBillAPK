@@ -1,0 +1,12 @@
+{
+  "appId": "com.restobill.app",
+  "appName": "RestoBill",
+  "webDir": "src/renderer",
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#0f1117"
+  },
+  "server": {
+    "androidScheme": "https"
+  }
+}
