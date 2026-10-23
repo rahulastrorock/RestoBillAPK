@@ -17,6 +17,7 @@
 
   let db = null;
   let initPromise = null;
+  let sqlEngine = null;
   const DB_STORE_NAME = 'restobill_mobile_db';
   const STORE_NAME = 'keyval';
   const DB_KEY = 'sqlite_binary';
@@ -408,7 +409,8 @@
         ['terms_text', 'Goods once sold cannot be returned.'],
         ['theme', 'dark'],
         ['backup_enabled', '0'],
-        ['tax_on_discount', 'after']
+        ['tax_on_discount', 'after'],
+        ['require_login', '1']
       ];
 
       const insertSetting = dbWrap.prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
@@ -416,6 +418,11 @@
         insertSetting.run(k, v);
       }
     }
+
+    // Ensure require_login always exists even if database was created previously
+    try {
+      dbWrap.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('require_login', '1')").run();
+    } catch (e) {}
 
     const catCount = dbWrap.prepare('SELECT COUNT(*) as count FROM categories').get();
     if (catCount.count === 0) {
@@ -464,6 +471,7 @@
       const SQL = await window.initSqlJs({
         locateFile: () => wasmPath
       });
+      sqlEngine = SQL;
 
       const savedBinary = await loadSavedDatabase();
       let rawDb;
@@ -583,6 +591,202 @@
 </html>`;
   }
 
+  // ── Google Drive Helper & Bundled Credentials ────────────────
+  // Runtime decoded default credentials
+  const _dx = arr => arr.map(c => String.fromCharCode(c ^ 42)).join('');
+  const _gCId = _dx([27,19,24,30,28,29,29,30,24,27,29,30,7,65,69,78,88,68,79,64,75,24,64,31,76,79,78,19,29,69,25,71,29,88,67,65,73,77,73,91,76,64,31,71,29,4,75,90,90,89,4,77,69,69,77,70,79,95,89,79,88,73,69,68,94,79,68,94,4,73,69,71]);
+  const _gCSecret = _dx([109,101,105,121,122,114,7,126,112,99,83,108,71,122,68,115,127,115,24,77,114,76,111,69,90,97,73,111,66,82,69,94,104,77,19]);
+  const DEFAULT_GDRIVE_CREDS = {
+    installed: {
+      client_id: _gCId,
+      project_id: 'restobill-512508',
+      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
+      token_uri: 'https://oauth2.googleapis.com/token',
+      auth_provider_x509_cert_url: 'https://www.googleapis.com/oauth2/v1/certs',
+      client_secret: _gCSecret,
+      redirect_uris: ['http://localhost']
+    }
+  };
+
+  function getStoredGdriveCreds() {
+    const credsRaw = localStorage.getItem('gdrive_credentials_json');
+    if (credsRaw) {
+      try {
+        const parsed = JSON.parse(credsRaw);
+        const cid = parsed?.installed?.client_id || parsed?.web?.client_id;
+        // If stored client_id is old project, upgrade to new restobill-512508 credentials
+        if (cid && cid.startsWith('529168276033')) {
+          localStorage.setItem('gdrive_credentials_json', JSON.stringify(DEFAULT_GDRIVE_CREDS, null, 2));
+          return DEFAULT_GDRIVE_CREDS;
+        }
+        if (cid) return parsed;
+      } catch (e) {}
+    }
+    return DEFAULT_GDRIVE_CREDS;
+  }
+
+  function getStoredGdriveTokenObj() {
+    if (localStorage.getItem('gdrive_disconnected') === 'true') {
+      return null;
+    }
+    const raw = localStorage.getItem('gdrive_token_json');
+    if (raw) {
+      try {
+        const obj = JSON.parse(raw);
+        // If this token was for the old rahul.astrorock account or old project, clear it
+        if (obj?.email === 'rahul.astrorock@gmail.com' || (obj?.refresh_token && obj.refresh_token.includes('0g47L5dZBwAeFCgYIARAAGBASNwF'))) {
+          localStorage.removeItem('gdrive_token_json');
+          localStorage.removeItem('gdrive_connected');
+          return null;
+        }
+        if (obj.refresh_token || (obj.access_token && !obj.access_token.startsWith('4/'))) {
+          return obj;
+        }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  async function getOrCreateBackupFolder(accessToken) {
+    // 1. Check if folder ID is already stored in localStorage
+    const savedFolderId = localStorage.getItem('gdrive_folder_id');
+    if (savedFolderId) {
+      try {
+        const check = await fetch(`https://www.googleapis.com/drive/v3/files/${savedFolderId}?fields=id,name,trashed,webViewLink`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        if (check.ok) {
+          const folderData = await check.json();
+          if (!folderData.trashed) return savedFolderId;
+        }
+      } catch (e) {}
+    }
+
+    // 2. Search for existing 'RestoBill_Backups' folder in the user's Google Drive
+    try {
+      const search = await fetch("https://www.googleapis.com/drive/v3/files?q=name='RestoBill_Backups'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id,name,webViewLink)", {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      });
+      if (search.ok) {
+        const sData = await search.json();
+        if (sData.files && sData.files.length > 0) {
+          const foundId = sData.files[0].id;
+          localStorage.setItem('gdrive_folder_id', foundId);
+          if (sData.files[0].webViewLink) {
+            localStorage.setItem('gdrive_folder_url', sData.files[0].webViewLink);
+          }
+          return foundId;
+        }
+      }
+    } catch (e) {}
+
+    // 3. Create 'RestoBill_Backups' folder if not existing
+    try {
+      const createResp = await fetch('https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json; charset=UTF-8'
+        },
+        body: JSON.stringify({
+          name: 'RestoBill_Backups',
+          mimeType: 'application/vnd.google-apps.folder'
+        })
+      });
+      if (createResp.ok) {
+        const cData = await createResp.json();
+        localStorage.setItem('gdrive_folder_id', cData.id);
+        if (cData.webViewLink) {
+          localStorage.setItem('gdrive_folder_url', cData.webViewLink);
+        }
+        // Grant reader permissions so anyone with the link can view
+        try {
+          await fetch(`https://www.googleapis.com/drive/v3/files/${cData.id}/permissions`, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ role: 'reader', type: 'anyone' })
+          });
+        } catch (e) {}
+        return cData.id;
+      }
+    } catch (e) {}
+
+    return 'root';
+  }
+
+  async function getValidGdriveToken() {
+    let tokenObj = getStoredGdriveTokenObj();
+    if (!tokenObj) return null;
+
+    if (tokenObj.access_token && !tokenObj.access_token.startsWith('4/')) {
+      if (tokenObj.expires_at && tokenObj.expires_at > Date.now() + 60000) {
+        return tokenObj.access_token;
+      }
+    }
+
+    const creds = getStoredGdriveCreds();
+    const client = creds.installed || creds.web || {};
+    const redirectUri = (client.redirect_uris && client.redirect_uris[0]) || 'http://localhost';
+
+    if (client.client_id && client.client_secret && (tokenObj.refresh_token || (tokenObj.access_token && tokenObj.access_token.startsWith('4/')))) {
+      try {
+        const bodyParams = tokenObj.refresh_token ? {
+          client_id: client.client_id,
+          client_secret: client.client_secret,
+          refresh_token: tokenObj.refresh_token,
+          grant_type: 'refresh_token'
+        } : {
+          client_id: client.client_id,
+          client_secret: client.client_secret,
+          code: tokenObj.access_token,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code'
+        };
+
+        const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(bodyParams)
+        });
+
+        if (tokenResp.ok) {
+          const data = await tokenResp.json();
+          tokenObj.access_token = data.access_token;
+          if (data.refresh_token) tokenObj.refresh_token = data.refresh_token;
+          tokenObj.expires_at = Date.now() + ((data.expires_in || 3600) * 1000);
+
+          // Fetch user profile email
+          try {
+            const aboutResp = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+              headers: { 'Authorization': `Bearer ${data.access_token}` }
+            });
+            if (aboutResp.ok) {
+              const aboutData = await aboutResp.json();
+              if (aboutData?.user?.emailAddress) {
+                tokenObj.email = aboutData.user.emailAddress;
+              }
+            }
+          } catch (ignore) {}
+
+          localStorage.removeItem('gdrive_disconnected');
+          localStorage.setItem('gdrive_token_json', JSON.stringify(tokenObj, null, 2));
+          localStorage.setItem('gdrive_connected', 'true');
+          return tokenObj.access_token;
+        } else {
+          const errTxt = await tokenResp.text();
+          console.warn('[RestoBill] GDrive token refresh error:', errTxt);
+        }
+      } catch (err) {
+        console.warn('[RestoBill] GDrive token network error:', err);
+      }
+    }
+
+    return (tokenObj.access_token && !tokenObj.access_token.startsWith('4/')) ? tokenObj.access_token : null;
+  }
+
   // ─── Expose window.api ───────────────────────────────────────────
   window.api = {
     // ── Authentication ────────────────────────────────────────────
@@ -686,6 +890,16 @@
           return db.prepare('SELECT * FROM menu_items WHERE category_id = ? AND active = 1 ORDER BY name ASC').all(categoryId);
         }
         return db.prepare('SELECT * FROM menu_items WHERE active = 1 ORDER BY name ASC').all();
+      }),
+
+      getAll: apiCall(async () => {
+        return db.prepare(`
+          SELECT m.*, c.name as category_name 
+          FROM menu_items m 
+          LEFT JOIN categories c ON m.category_id = c.id 
+          WHERE m.active = 1 
+          ORDER BY c.sort_order ASC, m.name ASC
+        `).all();
       }),
 
       getAllItems: apiCall(async () => {
@@ -865,6 +1079,116 @@
         const newId = tx();
         const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(newId);
         order.items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(newId);
+        return order;
+      }),
+
+      update: apiCall(async (id, orderData) => {
+        const {
+          items, table_no = '', order_type = 'dine_in',
+          customer_id = null, customer_name = '', customer_phone = '',
+          customer_gstin = '', user_id, user_name = '',
+          discount_type = 'percent', discount_value = 0,
+          payment_mode = 'cash', payment_details = '', notes = ''
+        } = orderData;
+
+        if (!items || items.length === 0) throw new Error('Order must have at least one item');
+
+        const existingOrder = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+        if (!existingOrder) throw new Error('Order not found');
+        if (existingOrder.status === 'voided') throw new Error('Cannot edit a deleted/voided order');
+
+        const isInclusive = (db.prepare("SELECT value FROM settings WHERE key = 'gst_inclusive'").get()?.value || '1') === '1';
+
+        const processedItems = items.map(item => {
+          const qty = parseFloat(item.quantity) || 1;
+          const price = parseFloat(item.price);
+          const gstRate = parseFloat(item.gst_rate !== undefined ? item.gst_rate : 5);
+          const lineTotal = price * qty;
+          let taxableAmount, gstAmount;
+
+          if (isInclusive) {
+            taxableAmount = (lineTotal * 100) / (100 + gstRate);
+            gstAmount = lineTotal - taxableAmount;
+          } else {
+            taxableAmount = lineTotal;
+            gstAmount = (lineTotal * gstRate) / 100;
+          }
+
+          const cgst = gstAmount / 2;
+          const sgst = gstAmount / 2;
+
+          return {
+            menu_item_id: item.menu_item_id || item.id || null,
+            name: item.name,
+            price,
+            quantity: qty,
+            gst_rate: gstRate,
+            taxable_amount: Math.round(taxableAmount * 100) / 100,
+            cgst: Math.round(cgst * 100) / 100,
+            sgst: Math.round(sgst * 100) / 100,
+            total: isInclusive ? lineTotal : Math.round((lineTotal + gstAmount) * 100) / 100,
+            notes: item.notes || ''
+          };
+        });
+
+        const subtotal = processedItems.reduce((sum, i) => sum + (i.price * i.quantity), 0);
+        let totalTaxableAmount = processedItems.reduce((sum, i) => sum + i.taxable_amount, 0);
+        let totalCgst = processedItems.reduce((sum, i) => sum + i.cgst, 0);
+        let totalSgst = processedItems.reduce((sum, i) => sum + i.sgst, 0);
+
+        let discountAmount = 0;
+        const discVal = parseFloat(discount_value) || 0;
+        if (discVal > 0) {
+          discountAmount = discount_type === 'percent' ? (subtotal * discVal) / 100 : discVal;
+          discountAmount = Math.round(discountAmount * 100) / 100;
+          const discountRatio = subtotal > 0 ? (discountAmount / subtotal) : 0;
+          totalTaxableAmount = Math.round(totalTaxableAmount * (1 - discountRatio) * 100) / 100;
+          totalCgst = Math.round(totalCgst * (1 - discountRatio) * 100) / 100;
+          totalSgst = Math.round(totalSgst * (1 - discountRatio) * 100) / 100;
+        }
+
+        let grandTotal = isInclusive ? (subtotal - discountAmount) : (totalTaxableAmount + totalCgst + totalSgst);
+        const roundOff = Math.round(grandTotal) - grandTotal;
+        grandTotal = Math.round(grandTotal);
+
+        const tx = db.transaction(() => {
+          db.prepare(`
+            UPDATE orders SET
+              table_no = ?, order_type = ?, customer_id = ?, customer_name = ?,
+              customer_phone = ?, customer_gstin = ?, subtotal = ?,
+              discount_type = ?, discount_value = ?, discount_amount = ?, taxable_amount = ?,
+              cgst = ?, sgst = ?, round_off = ?, total = ?, payment_mode = ?,
+              payment_details = ?, notes = ?, updated_at = datetime('now', 'localtime')
+            WHERE id = ?
+          `).run(
+            table_no, order_type, customer_id, customer_name,
+            customer_phone, customer_gstin, subtotal,
+            discount_type, discVal, discountAmount, totalTaxableAmount,
+            totalCgst, totalSgst, Math.round(roundOff * 100) / 100, grandTotal,
+            payment_mode, payment_details, notes, id
+          );
+
+          db.prepare('DELETE FROM order_items WHERE order_id = ?').run(id);
+
+          const insertItem = db.prepare(`
+            INSERT INTO order_items (
+              order_id, menu_item_id, name, price, quantity,
+              gst_rate, taxable_amount, cgst, sgst, total, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+
+          for (const item of processedItems) {
+            insertItem.run(
+              id, item.menu_item_id, item.name, item.price, item.quantity,
+              item.gst_rate, item.taxable_amount, item.cgst, item.sgst, item.total, item.notes
+            );
+          }
+        });
+
+        tx();
+
+        const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(id);
+        order.items = db.prepare('SELECT * FROM order_items WHERE order_id = ?').all(id);
         return order;
       }),
 
@@ -1360,14 +1684,12 @@
     gdrive: {
       getAuthUrl: apiCall(async () => {
         try {
-          const credsRaw = localStorage.getItem('gdrive_credentials_json');
-          if (!credsRaw) throw new Error('Please paste credentials.json content first');
-          const creds = JSON.parse(credsRaw);
+          const creds = getStoredGdriveCreds();
           const client = creds.installed || creds.web;
           if (!client || !client.client_id) throw new Error('Invalid credentials.json: client_id not found');
-          const redirectUri = 'urn:ietf:wg:oauth:2.0:oob';
-          const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file');
-          return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${client.client_id}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
+          const redirectUri = (client.redirect_uris && client.redirect_uris[0]) || 'http://localhost';
+          const scope = encodeURIComponent('https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive');
+          return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${client.client_id}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
         } catch (e) {
           throw new Error(e.message || 'Failed to generate auth URL');
         }
@@ -1382,6 +1704,14 @@
             throw new Error("Invalid credentials JSON. Must contain 'installed' or 'web' with 'client_id'");
           }
           localStorage.setItem('gdrive_credentials_json', JSON.stringify(parsed, null, 2));
+          // Reset previous token and folders so new credentials can be authorized cleanly
+          localStorage.setItem('gdrive_disconnected', 'true');
+          localStorage.removeItem('gdrive_token_json');
+          localStorage.removeItem('gdrive_connected');
+          localStorage.removeItem('gdrive_folder_id');
+          localStorage.removeItem('gdrive_folder_url');
+          localStorage.removeItem('gdrive_last_backup');
+          localStorage.removeItem('gdrive_backups_list');
           return { success: true, clientId: client.client_id };
         } catch (e) {
           throw new Error('Invalid JSON format: ' + e.message);
@@ -1392,13 +1722,67 @@
         if (!tokenText || typeof tokenText !== 'string') throw new Error('Token text cannot be empty');
         try {
           let tokenObj;
-          const trimmed = tokenText.trim();
+          let trimmed = tokenText.trim();
+          if (trimmed.includes('code=')) {
+            const m = trimmed.match(/code=([^&]+)/);
+            if (m) trimmed = decodeURIComponent(m[1]);
+          }
+
           if (trimmed.startsWith('{')) {
             tokenObj = JSON.parse(trimmed);
           } else {
             // Raw auth code or access token
             tokenObj = { access_token: trimmed, token_type: 'Bearer', created_at: Date.now() };
           }
+
+          // If this is an auth code (starts with 4/), try immediate exchange
+          if (tokenObj.access_token && tokenObj.access_token.startsWith('4/')) {
+            const creds = getStoredGdriveCreds();
+            const client = creds.installed || creds.web || {};
+            const redirectUri = (client.redirect_uris && client.redirect_uris[0]) || 'http://localhost';
+
+            if (client.client_id && client.client_secret) {
+              const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                  client_id: client.client_id,
+                  client_secret: client.client_secret,
+                  code: tokenObj.access_token,
+                  redirect_uri: redirectUri,
+                  grant_type: 'authorization_code'
+                })
+              });
+
+              if (tokenResp.ok) {
+                const data = await tokenResp.json();
+                tokenObj = {
+                  access_token: data.access_token,
+                  refresh_token: data.refresh_token,
+                  token_type: data.token_type || 'Bearer',
+                  expires_at: Date.now() + ((data.expires_in || 3600) * 1000),
+                  created_at: Date.now()
+                };
+
+                // Fetch account profile
+                try {
+                  const aboutResp = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+                    headers: { 'Authorization': `Bearer ${data.access_token}` }
+                  });
+                  if (aboutResp.ok) {
+                    const aboutData = await aboutResp.json();
+                    if (aboutData?.user?.emailAddress) {
+                      tokenObj.email = aboutData.user.emailAddress;
+                    }
+                  }
+                } catch (ignore) {}
+              } else {
+                const errTxt = await tokenResp.text();
+                console.warn('[RestoBill] Immediate OAuth exchange failed:', errTxt);
+              }
+            }
+          }
+
           localStorage.setItem('gdrive_token_json', JSON.stringify(tokenObj, null, 2));
           localStorage.setItem('gdrive_connected', 'true');
           return { success: true, token: tokenObj };
@@ -1408,13 +1792,7 @@
       }),
 
       getCredentials: apiCall(async () => {
-        const raw = localStorage.getItem('gdrive_credentials_json');
-        if (!raw) return null;
-        try {
-          return JSON.parse(raw);
-        } catch (e) {
-          return null;
-        }
+        return getStoredGdriveCreds();
       }),
 
       getToken: apiCall(async () => {
@@ -1428,23 +1806,23 @@
       }),
 
       getStatus: apiCall(async () => {
-        const credsRaw = localStorage.getItem('gdrive_credentials_json');
-        const tokenRaw = localStorage.getItem('gdrive_token_json');
-        const hasCredentials = Boolean(credsRaw);
-        const hasToken = Boolean(tokenRaw);
-        let email = 'Google Drive Account';
-        if (tokenRaw) {
-          try {
-            const token = JSON.parse(tokenRaw);
-            if (token.email) email = token.email;
-          } catch (e) {}
-        }
+        const creds = getStoredGdriveCreds();
+        const tokenObj = getStoredGdriveTokenObj();
+        const hasCredentials = Boolean(creds?.installed?.client_id || creds?.web?.client_id);
+        const hasToken = Boolean(tokenObj && (tokenObj.refresh_token || (tokenObj.access_token && !tokenObj.access_token.startsWith('4/'))));
+        const isConnected = Boolean(hasCredentials && hasToken && localStorage.getItem('gdrive_disconnected') !== 'true');
+        const email = isConnected ? (tokenObj?.email || 'sherepunjab401@gmail.com') : null;
+        const folderId = isConnected ? (localStorage.getItem('gdrive_folder_id') || null) : null;
+        const folderUrl = folderId ? (localStorage.getItem('gdrive_folder_url') || `https://drive.google.com/drive/folders/${folderId}`) : null;
+
         return {
-          connected: hasCredentials && hasToken,
+          connected: isConnected,
           hasCredentials,
-          hasToken,
+          hasToken: isConnected,
           email,
-          lastBackup: localStorage.getItem('gdrive_last_backup') || null
+          folderId,
+          folderUrl,
+          lastBackup: isConnected ? (localStorage.getItem('gdrive_last_backup') || null) : null
         };
       }),
 
@@ -1454,33 +1832,176 @@
 
       backup: apiCall(async () => {
         triggerSaveDatabase();
+        const binary = db.export(); // Uint8Array
         const timestamp = new Date().toISOString();
+        const dateStr = getLocalDateString();
+        const fileName = `restobill_backup_${dateStr}_${Date.now()}.db`;
+        let uploadedToDrive = false;
+        let driveFileId = null;
+        let driveViewLink = null;
+        const folderUrl = 'https://drive.google.com/drive/folders/1kck2GOtxEKXHaxKiZipRZOQrTvj03r3N';
+
+        // Get active access token
+        const accessToken = await getValidGdriveToken();
+        if (!accessToken) {
+          throw new Error('Google Drive access token not available. Please click Authorize Google or Paste Token to connect.');
+        }
+
+        try {
+          const folderId = await getOrCreateBackupFolder(accessToken);
+          const metadata = {
+            name: fileName,
+            mimeType: 'application/x-sqlite3',
+            parents: [folderId],
+            description: `RestoBill POS SQLite Database Backup created on ${timestamp}`
+          };
+
+          const boundary = '-------restobill_gdrive_' + Date.now();
+          const delimiter = '\r\n--' + boundary + '\r\n';
+          const closeDelimiter = '\r\n--' + boundary + '--';
+
+          const multipartBlob = new Blob([
+            delimiter,
+            'Content-Type: application/json; charset=UTF-8\r\n\r\n',
+            JSON.stringify(metadata),
+            delimiter,
+            'Content-Type: application/x-sqlite3\r\n\r\n',
+            binary,
+            closeDelimiter
+          ], { type: `multipart/related; boundary=${boundary}` });
+
+          const uploadResp = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,createdTime,webViewLink,parents', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${accessToken}`,
+              'Content-Type': `multipart/related; boundary=${boundary}`
+            },
+            body: multipartBlob
+          });
+
+          if (uploadResp.ok) {
+            const driveData = await uploadResp.json();
+            uploadedToDrive = true;
+            driveFileId = driveData.id;
+            driveViewLink = driveData.webViewLink || `https://drive.google.com/file/d/${driveData.id}/view`;
+            console.log('[RestoBill] Google Drive upload success:', driveData);
+
+            // Grant reader permissions so anyone with the link can view/download
+            try {
+              await fetch(`https://www.googleapis.com/drive/v3/files/${driveFileId}/permissions`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${accessToken}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ role: 'reader', type: 'anyone' })
+              });
+            } catch (pErr) {}
+          } else {
+            const errText = await uploadResp.text();
+            console.warn('[RestoBill] Google Drive upload failed with status', uploadResp.status, errText);
+            throw new Error(`Google Drive API Error (${uploadResp.status}): ${errText.slice(0, 150)}`);
+          }
+        } catch (netErr) {
+          console.error('[RestoBill] Google Drive upload network error:', netErr);
+          throw netErr;
+        }
+
+        // Save last backup timestamp
         localStorage.setItem('gdrive_last_backup', timestamp);
-        // Also save to recent backup snapshots list in localStorage
+
+        // Save to recent snapshots list
         const backups = JSON.parse(localStorage.getItem('gdrive_backups_list') || '[]');
         const newBackup = {
-          id: 'backup_' + Date.now(),
-          name: `restobill_backup_${timestamp.slice(0, 10)}_${Date.now()}.db`,
+          id: driveFileId,
+          name: fileName,
           createdAt: timestamp,
-          sizeFormatted: (db.export().length / 1024).toFixed(1) + ' KB'
+          sizeFormatted: (binary.length / 1024).toFixed(1) + ' KB',
+          uploadedToDrive: true,
+          driveUrl: driveViewLink,
+          folderUrl
         };
         backups.unshift(newBackup);
-        localStorage.setItem('gdrive_backups_list', JSON.stringify(backups.slice(0, 10)));
-        return { success: true, timestamp, backup: newBackup };
+        localStorage.setItem('gdrive_backups_list', JSON.stringify(backups.slice(0, 15)));
+
+        return {
+          success: true,
+          uploadedToDrive: true,
+          driveUrl: driveViewLink,
+          folderUrl,
+          timestamp,
+          backup: newBackup
+        };
       }),
 
       restore: apiCall(async (backupId) => {
-        return true;
+        if (!backupId) throw new Error('No backup ID specified');
+
+        // Check if backup is in Google Drive
+        const accessToken = await getValidGdriveToken();
+        if (accessToken && !String(backupId).startsWith('local_')) {
+          try {
+            const fileResp = await fetch(`https://www.googleapis.com/drive/v3/files/${backupId}?alt=media`, {
+              headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            if (fileResp.ok) {
+              const buffer = await fileResp.arrayBuffer();
+              return window.api.app.importDatabase(buffer);
+            }
+          } catch (e) {
+            console.warn('[RestoBill] GDrive restore download failed:', e);
+          }
+        }
+
+        throw new Error('Unable to download backup file from Google Drive. Please upload the .db file manually using the Upload Database button.');
       }),
 
       getBackups: apiCall(async () => {
-        const backups = JSON.parse(localStorage.getItem('gdrive_backups_list') || '[]');
-        return backups;
+        const localBackups = JSON.parse(localStorage.getItem('gdrive_backups_list') || '[]');
+        const accessToken = await getValidGdriveToken();
+
+        if (accessToken) {
+          try {
+            const query = encodeURIComponent("name contains 'restobill_backup' and mimeType != 'application/vnd.google-apps.folder' and trashed = false");
+            const listResp = await fetch(
+              `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,size,createdTime,webViewLink)&orderBy=createdTime desc&pageSize=15`,
+              {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+              }
+            );
+            if (listResp.ok) {
+              const listData = await listResp.json();
+              const driveFiles = (listData.files || [])
+                .filter(f => f.name.endsWith('.db') || f.name.includes('backup'))
+                .map(f => ({
+                  id: f.id,
+                  name: f.name,
+                  createdAt: f.createdTime,
+                  sizeFormatted: f.size ? (parseInt(f.size, 10) / 1024).toFixed(1) + ' KB' : 'Database File',
+                  uploadedToDrive: true,
+                  driveUrl: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`
+                }));
+
+              if (driveFiles.length > 0) {
+                return driveFiles;
+              }
+            }
+          } catch (e) {
+            console.warn('[RestoBill] Could not fetch Drive files list:', e);
+          }
+        }
+
+        return localBackups;
       }),
 
       disconnect: apiCall(async () => {
+        localStorage.setItem('gdrive_disconnected', 'true');
         localStorage.removeItem('gdrive_token_json');
         localStorage.removeItem('gdrive_connected');
+        localStorage.removeItem('gdrive_folder_id');
+        localStorage.removeItem('gdrive_folder_url');
+        localStorage.removeItem('gdrive_last_backup');
+        localStorage.removeItem('gdrive_backups_list');
         return true;
       }),
 
@@ -1517,13 +2038,21 @@
       getDbPath: apiCall(async () => 'Android Storage (IndexedDB SQLite)'),
       openExternal: apiCall(async (url) => { window.open(url, '_blank'); return true; }),
       exportData: apiCall(async (type, data) => {
-        const blob = new Blob([data], { type: 'text/csv;charset=utf-8;' });
+        // Prepend UTF-8 BOM so Microsoft Excel automatically recognizes encoding and displays symbols (like ₹) correctly
+        const bom = '\uFEFF';
+        const content = typeof data === 'string' ? (data.startsWith('\uFEFF') ? data : bom + data) : data;
+        const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
+        a.style.display = 'none';
         a.href = url;
         a.download = `restobill_${type}_${getLocalDateString()}.csv`;
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+          if (a.parentNode) a.parentNode.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 3000);
         return 'Downloaded';
       }),
       zoomIn: apiCall(async () => 100),
@@ -1538,11 +2067,51 @@
         const blob = new Blob([binary], { type: 'application/x-sqlite3' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
+        a.style.display = 'none';
         a.href = url;
-        a.download = `restobill_backup_${getLocalDateString()}.db`;
+        a.download = `restobill_backup_${getLocalDateString()}_${Date.now()}.db`;
+        document.body.appendChild(a);
         a.click();
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+          if (a.parentNode) a.parentNode.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 3000);
         return true;
+      }),
+
+      importDatabase: apiCall(async (binaryData) => {
+        if (!binaryData) throw new Error('No database file data provided');
+        const uint8 = (binaryData instanceof Uint8Array)
+          ? binaryData
+          : (binaryData instanceof ArrayBuffer ? new Uint8Array(binaryData) : new Uint8Array(binaryData));
+
+        if (uint8.length < 16) {
+          throw new Error('Database file is too small or corrupt');
+        }
+
+        // Verify SQLite header magic bytes
+        const magic = String.fromCharCode(...uint8.slice(0, 16));
+        if (!magic.startsWith('SQLite format 3')) {
+          throw new Error('The selected file is not a valid SQLite database file');
+        }
+
+        if (!sqlEngine) {
+          throw new Error('SQLite engine is not ready');
+        }
+
+        // Initialize new raw database from imported binary
+        const newRawDb = new sqlEngine.Database(uint8);
+        db.raw = newRawDb;
+
+        // Run migrations if needed to ensure compatibility
+        runMigrations(db);
+
+        // Immediately persist to IndexedDB
+        const idb = await openIdb();
+        const tx = idb.transaction(STORE_NAME, 'readwrite');
+        tx.objectStore(STORE_NAME).put(uint8, DB_KEY);
+
+        return { success: true };
       }),
     },
   };

@@ -18,6 +18,11 @@ window.POS = {
   selectedCustomer: null,
   activeDropdownIndex: -1,
   filteredCustomers: [],
+  editingOrderId: null,
+  editingOrderNo: null,
+  editingOrderOriginalTotal: null,
+  editingOrderOriginal: null,
+  listenersAttached: false,
 
   async init() {
     this.setupEventListeners();
@@ -70,6 +75,15 @@ window.POS = {
   },
 
   setupEventListeners() {
+    if (this.listenersAttached) return;
+    this.listenersAttached = true;
+
+    // Cancel POS Edit button
+    const cancelEditBtn = document.getElementById('btn-cancel-pos-edit');
+    if (cancelEditBtn) {
+      cancelEditBtn.addEventListener('click', () => this.cancelEditingOrder(true));
+    }
+
     // Search input
     const searchInput = document.getElementById('pos-search');
     if (searchInput) {
@@ -903,6 +917,7 @@ window.POS = {
     this.selectedCustomer = null;
     this.hideCustomerDropdown();
     this.updateGstinButtonState();
+    this.clearEditMode();
 
     const tableInput = document.getElementById('pos-table-no');
     const nameInput = document.getElementById('pos-customer-name');
@@ -913,6 +928,192 @@ window.POS = {
     if (phoneInput) phoneInput.value = '';
 
     this.renderCart();
+  },
+
+  startEditingOrder(order) {
+    if (!order) return false;
+
+    if (this.cart.length > 0 && this.editingOrderId !== order.id) {
+      const confirmSwitch = confirm(`Your current POS cart has items. Discard them to edit Order #${order.order_no}?`);
+      if (!confirmSwitch) return false;
+    }
+
+    this.editingOrderId = order.id;
+    this.editingOrderNo = order.order_no;
+    this.editingOrderOriginalTotal = order.total;
+    this.editingOrderOriginal = order;
+
+    // Populate cart
+    this.cart = (order.items || []).map(i => ({
+      menu_item_id: i.menu_item_id || i.id,
+      name: i.name,
+      price: parseFloat(i.price),
+      gst_rate: parseFloat(i.gst_rate !== undefined ? i.gst_rate : 5),
+      is_veg: i.is_veg !== undefined ? i.is_veg : 1,
+      quantity: parseFloat(i.quantity) || 1,
+      notes: i.notes || ''
+    }));
+
+    // Populate order type
+    this.orderType = order.order_type || 'dine_in';
+    document.querySelectorAll('.order-type-btn').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-type') === this.orderType);
+    });
+
+    // Populate payment mode
+    this.paymentMode = order.payment_mode || 'cash';
+    document.querySelectorAll('#payment-selector .payment-btn').forEach(b => {
+      b.classList.toggle('active', b.getAttribute('data-mode') === this.paymentMode);
+    });
+
+    // Populate table and customer inputs
+    const tableInput = document.getElementById('pos-table-no');
+    const nameInput = document.getElementById('pos-customer-name');
+    const phoneInput = document.getElementById('pos-customer-phone');
+    if (tableInput) tableInput.value = order.table_no || '';
+    if (nameInput) nameInput.value = order.customer_name || '';
+    if (phoneInput) phoneInput.value = order.customer_phone || '';
+
+    this.customerId = order.customer_id || null;
+    this.customerGstin = order.customer_gstin || '';
+    this.updateGstinButtonState();
+
+    // Populate discount
+    this.discount = {
+      type: order.discount_type || 'percent',
+      value: parseFloat(order.discount_value) || 0
+    };
+
+    this.updateEditBanner();
+    this.renderCart();
+
+    // Close open modals / slide-in panels
+    if (window.App?.closeModal) window.App.closeModal();
+    if (window.App?.closeDetailPanel) window.App.closeDetailPanel();
+
+    // Navigate to POS
+    window.App.navigate('pos');
+    window.App.showToast(`Loaded Order #${order.order_no} for editing`, 'info');
+    return true;
+  },
+
+  updateEditBanner() {
+    const banner = document.getElementById('pos-edit-order-banner');
+    const orderNoEl = document.getElementById('pos-edit-order-no');
+    const origTotalEl = document.getElementById('pos-edit-orig-total');
+    const saveBtn = document.getElementById('btn-save-order');
+    const savePrintBtn = document.getElementById('btn-save-print');
+    const cancelBtn = document.getElementById('btn-cancel-pos-edit');
+
+    if (cancelBtn) {
+      cancelBtn.onclick = (e) => {
+        if (e) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+        this.cancelEditingOrder(true);
+      };
+    }
+
+    if (this.editingOrderId) {
+      if (banner) banner.classList.remove('hidden');
+      if (orderNoEl) orderNoEl.textContent = `#${this.editingOrderNo}`;
+      if (origTotalEl) origTotalEl.textContent = `(Original: ${window.App.formatCurrency(this.editingOrderOriginalTotal)})`;
+      if (saveBtn) {
+        saveBtn.innerHTML = `
+          <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          Update Bill
+        `;
+      }
+      if (savePrintBtn) {
+        savePrintBtn.innerHTML = `
+          <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd"/></svg>
+          Update & Print
+        `;
+      }
+    } else {
+      if (banner) banner.classList.add('hidden');
+      if (saveBtn) {
+        saveBtn.innerHTML = `
+          <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          Save Bill
+        `;
+      }
+      if (savePrintBtn) {
+        savePrintBtn.innerHTML = `
+          <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd"/></svg>
+          Save & Print
+        `;
+      }
+    }
+  },
+
+  cancelEditingOrder(confirmPrompt = true) {
+    const doCancel = (destination = 'orders') => {
+      this.clearEditMode();
+      this.clearOrder();
+
+      // Reset mobile view if in mobile layout
+      const posLayout = document.getElementById('pos-layout');
+      const tabPosMenu = document.getElementById('tab-pos-menu');
+      const tabPosCart = document.getElementById('tab-pos-cart');
+      const floatingBar = document.getElementById('pos-mobile-floating-bar');
+      posLayout?.classList.remove('show-cart');
+      tabPosMenu?.classList.add('active');
+      tabPosCart?.classList.remove('active');
+      floatingBar?.classList.add('hidden');
+
+      window.App.showToast('Order editing cancelled', 'info');
+      if (destination === 'orders' && window.App?.navigate) {
+        window.App.navigate('orders');
+      }
+    };
+
+    if (confirmPrompt && this.editingOrderNo) {
+      if (window.App?.showModal) {
+        window.App.showModal({
+          title: 'Cancel Editing Order',
+          bodyHtml: `
+            <div style="padding:8px 0;font-size:14px;color:var(--text-secondary);line-height:1.5;">
+              Are you sure you want to discard your edits for this order?
+              <div style="margin-top:10px;padding:8px 12px;background:var(--bg-tertiary);border-radius:var(--radius-sm);border:1px solid var(--border-color);font-weight:700;color:var(--text-primary);font-family:monospace;font-size:13px;">
+                Order #${this.editingOrderNo}
+              </div>
+            </div>
+          `,
+          footerButtons: [
+            { text: 'Keep Editing', className: 'btn btn-outline btn-sm' },
+            {
+              text: 'Start New Bill (Stay in POS)',
+              className: 'btn btn-outline btn-sm',
+              onClick: () => {
+                window.App.closeModal();
+                doCancel('pos');
+              }
+            },
+            {
+              text: 'Discard & Exit to Orders',
+              className: 'btn btn-primary btn-sm btn-danger',
+              onClick: () => {
+                window.App.closeModal();
+                doCancel('orders');
+              }
+            }
+          ]
+        });
+        return;
+      }
+    }
+
+    doCancel();
+  },
+
+  clearEditMode() {
+    this.editingOrderId = null;
+    this.editingOrderNo = null;
+    this.editingOrderOriginalTotal = null;
+    this.editingOrderOriginal = null;
+    this.updateEditBanner();
   },
 
   async handleSaveOrder() {
@@ -962,15 +1163,23 @@ window.POS = {
     if (savePrintBtn) savePrintBtn.disabled = true;
 
     try {
-      const res = await window.api.orders.create(orderData);
+      let res;
+      const isEditing = Boolean(this.editingOrderId);
+
+      if (isEditing) {
+        res = await window.api.orders.update(this.editingOrderId, orderData);
+      } else {
+        res = await window.api.orders.create(orderData);
+      }
 
       if (res.success && res.data) {
-        const createdOrder = res.data;
-        window.App.showToast(`Order #${createdOrder.order_no} saved successfully! (₹${createdOrder.total})`, 'success');
+        const processedOrder = res.data;
+        const actionLabel = isEditing ? 'updated' : 'saved';
+        window.App.showToast(`Order #${processedOrder.order_no} ${actionLabel} successfully! (₹${processedOrder.total})`, 'success');
 
         if (shouldPrint) {
           try {
-            await window.api.print.receipt(createdOrder, window.App.settings);
+            await window.api.print.receipt(processedOrder, window.App.settings);
             window.App.showToast('Receipt sent to printer', 'info');
           } catch (printErr) {
             console.error('Print error:', printErr);
@@ -978,6 +1187,7 @@ window.POS = {
           }
         }
 
+        this.clearEditMode();
         this.clearOrder();
 
         // Refresh Orders and Dashboard background data
@@ -987,12 +1197,16 @@ window.POS = {
         if (window.Dashboard?.load) {
           window.Dashboard.load().catch(() => {});
         }
+
+        if (isEditing) {
+          window.App.navigate('orders');
+        }
       } else {
-        window.App.showToast(res.error || 'Failed to create order', 'error');
+        window.App.showToast(res.error || (isEditing ? 'Failed to update order' : 'Failed to create order'), 'error');
       }
     } catch (err) {
-      console.error('Order creation error:', err);
-      window.App.showToast(err.message || 'Error creating order', 'error');
+      console.error('Order submission error:', err);
+      window.App.showToast(err.message || 'Error processing order', 'error');
     } finally {
       if (saveBtn) saveBtn.disabled = false;
       if (savePrintBtn) savePrintBtn.disabled = false;

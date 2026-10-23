@@ -25,6 +25,11 @@ window.CustomersUI = {
     if (addBtn) {
       addBtn.onclick = () => this.openAddCustomerModal();
     }
+
+    const exportBtn = document.getElementById('btn-export-customers');
+    if (exportBtn) {
+      exportBtn.onclick = () => this.exportCustomers();
+    }
   },
 
   async fetchCustomers() {
@@ -368,5 +373,30 @@ window.CustomersUI = {
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#39;');
+  },
+
+  async exportCustomers() {
+    if (!this.customers || this.customers.length === 0) {
+      window.App.showToast('No customers to export', 'warning');
+      return;
+    }
+    const headers = ['Name', 'Phone', 'Email', 'GSTIN', 'Address', 'Total Visits', 'Total Spend'];
+    const escapeCsv = (s) => `"${String(s === null || s === undefined ? '' : s).replace(/"/g, '""')}"`;
+    const rows = this.customers.map(c => [
+      escapeCsv(c.name),
+      escapeCsv(c.phone),
+      escapeCsv(c.email),
+      escapeCsv(c.gstin),
+      escapeCsv(c.address),
+      c.total_visits || 0,
+      c.total_spend || 0
+    ].join(','));
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    await window.App.exportDataWithEmail({
+      type: 'customers',
+      csvContent,
+      title: 'Customer Directory',
+      count: this.customers.length
+    });
   }
 };

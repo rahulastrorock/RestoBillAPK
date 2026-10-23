@@ -231,6 +231,18 @@
 
             <!-- Right: Order Panel -->
             <div class="pos-order-panel">
+              <!-- Edit Order Mode Banner -->
+              <div class="pos-edit-order-banner hidden" id="pos-edit-order-banner">
+                <div class="pos-edit-info">
+                  <span class="pos-edit-badge">✏️ EDITING ORDER</span>
+                  <span class="pos-edit-no" id="pos-edit-order-no">#INV-2026-0001</span>
+                  <span class="pos-edit-orig" id="pos-edit-orig-total">(Original: ₹0.00)</span>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline btn-cancel-edit" id="btn-cancel-pos-edit" onclick="window.POS.cancelEditingOrder(true)" title="Cancel order editing and discard changes">
+                  ✕ Cancel Edit
+                </button>
+              </div>
+
               <div class="order-header">
                 <button type="button" class="btn btn-secondary btn-sm mobile-back-btn" id="btn-mobile-back-menu">
                   <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd"/></svg>
@@ -471,6 +483,7 @@
                 <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
                 + Add Customer
               </button>
+              <button class="btn btn-outline btn-sm" id="btn-export-customers">📥 Export</button>
             </div>
           </div>
 
@@ -713,19 +726,19 @@
   <script src="js/lib/chart.umd.js"></script>
   <script src="js/lib/capacitor-biometric.js"></script>
   <!-- Mobile & Standalone Offline SQLite Engine (Activates automatically when not in Electron) -->
-  <script src="js/mobile-api.js"></script>
+  <script src="js/mobile-api.js?v=20261023c"></script>
   <!-- Real Hardware Biometric Authentication Service -->
-  <script src="js/biometric-auth.js"></script>
+  <script src="js/biometric-auth.js?v=20261023c"></script>
 
   <!-- Scripts -->
-  <script src="js/app.js"></script>
-  <script src="js/pos.js"></script>
-  <script src="js/menu.js"></script>
-  <script src="js/dashboard.js"></script>
-  <script src="js/orders.js"></script>
-  <script src="js/customers.js"></script>
-  <script src="js/users-ui.js"></script>
-  <script src="js/settings-ui.js"></script>
-  <script src="js/reports-ui.js"></script>
+  <script src="js/app.js?v=20261023c"></script>
+  <script src="js/pos.js?v=20261023c"></script>
+  <script src="js/menu.js?v=20261023c"></script>
+  <script src="js/dashboard.js?v=20261023c"></script>
+  <script src="js/orders.js?v=20261023c"></script>
+  <script src="js/customers.js?v=20261023c"></script>
+  <script src="js/users-ui.js?v=20261023c"></script>
+  <script src="js/settings-ui.js?v=20261023c"></script>
+  <script src="js/reports-ui.js?v=20261023c"></script>
 </body>
 </html>

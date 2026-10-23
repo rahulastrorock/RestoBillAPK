@@ -62,6 +62,27 @@ window.SettingsUI = {
           This business information will appear on the top of printed receipts and GST tax invoices.
         </p>
 
+        <!-- App Security & Login Authentication Switch -->
+        <div class="toggle-switch-card" style="border-left: 4px solid ${s.require_login !== '0' ? 'var(--color-success)' : 'var(--accent-primary)'}; margin-bottom: 24px;">
+          <div style="flex:1;">
+            <div style="font-weight:700;font-size:14px;color:var(--text-primary);display:flex;align-items:center;gap:8px;">
+              <span>🔒</span> Login & Authentication Requirement
+              <span id="badge-require-login" style="font-size:11px;padding:2px 8px;border-radius:12px;font-weight:700;background:${s.require_login !== '0' ? 'rgba(34,197,94,0.15)' : 'rgba(249,115,22,0.15)'};color:${s.require_login !== '0' ? 'var(--color-success)' : 'var(--accent-primary)'};">
+                ${s.require_login !== '0' ? '● Login Required' : '🔓 Always Unlocked (Direct Access)'}
+              </span>
+            </div>
+            <p id="desc-require-login" style="font-size:12px;color:var(--text-muted);margin:4px 0 0 0;line-height:1.4;">
+              ${s.require_login !== '0'
+                ? 'Authentication is active. Users must enter username and password to log in.'
+                : 'Login is turned OFF. The app is always unlocked and anyone opening RestoBill can directly use POS and billing without signing in.'}
+            </p>
+          </div>
+          <label class="toggle-switch" title="Toggle login authentication">
+            <input type="checkbox" id="toggle-require-login" ${s.require_login !== '0' ? 'checked' : ''}>
+            <span class="toggle-slider"></span>
+          </label>
+        </div>
+
         <form id="settings-restaurant-form">
           <!-- Restaurant Logo Section -->
           <div class="form-group restaurant-logo-card" style="margin-bottom:20px;">
@@ -195,6 +216,41 @@ window.SettingsUI = {
       const data = Object.fromEntries(formData.entries());
       this.saveBulk(data);
     });
+
+    // Login requirement switch listener
+    const toggleLogin = document.getElementById('toggle-require-login');
+    if (toggleLogin) {
+      toggleLogin.addEventListener('change', async (e) => {
+        const isChecked = e.target.checked;
+        const val = isChecked ? '1' : '0';
+        try {
+          await window.api.settings.update('require_login', val);
+          this.settings.require_login = val;
+          window.App.settings.require_login = val;
+
+          const badge = document.getElementById('badge-require-login');
+          const desc = document.getElementById('desc-require-login');
+          if (badge) {
+            badge.textContent = isChecked ? '● Login Required' : '🔓 Always Unlocked (Direct Access)';
+            badge.style.background = isChecked ? 'rgba(34,197,94,0.15)' : 'rgba(249,115,22,0.15)';
+            badge.style.color = isChecked ? 'var(--color-success)' : 'var(--accent-primary)';
+          }
+          if (desc) {
+            desc.textContent = isChecked
+              ? 'Authentication is active. Users must enter username and password to log in.'
+              : 'Login is turned OFF. The app is always unlocked and anyone opening RestoBill can directly use POS and billing without signing in.';
+          }
+
+          if (isChecked) {
+            window.App.showToast('🔒 Login enabled. Credentials will be required when opening the app.', 'success', 4000);
+          } else {
+            window.App.showToast('🔓 Login disabled! App is now permanently unlocked for direct use.', 'info', 4000);
+          }
+        } catch (err) {
+          window.App.showToast('Failed to update login setting: ' + err.message, 'error');
+        }
+      });
+    }
   },
 
   renderBillingTab(container) {
@@ -943,6 +999,31 @@ window.SettingsUI = {
     const s = this.settings;
     container.innerHTML = `
       <div class="settings-section">
+        <!-- 💾 Local SQLite Database (.db File) Backup & Restore Card -->
+        <div style="background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);padding:20px;margin-bottom:24px;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;">
+            <div style="flex:1;min-width:260px;">
+              <h4 style="font-size:15px;font-weight:700;margin:0 0 6px 0;display:flex;align-items:center;gap:8px;color:var(--text-primary);">
+                <span>💾</span> Local SQLite Database (.db File) Backup & Restore
+              </h4>
+              <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.5;">
+                Download your complete database file (.db) to your device anytime, or upload an existing .db file to instantly restore and populate all orders, menu items, categories, customers, and settings.
+              </p>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-outline btn-sm" id="btn-download-db" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 011.414 0zM11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
+                📥 Download Database (.db)
+              </button>
+              <input type="file" id="input-upload-db" accept=".db,application/x-sqlite3,application/octet-stream" style="display:none;">
+              <button type="button" class="btn btn-primary btn-sm" id="btn-upload-db" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
+                📤 Upload & Restore Database (.db)
+              </button>
+            </div>
+          </div>
+        </div>
+
         <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">Google Drive Cloud Backup</h3>
         <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">
           Automatically or manually backup your restaurant database (menu, orders, customers) to Google Drive.
@@ -1099,6 +1180,27 @@ window.SettingsUI = {
               `}
             </div>
           </div>
+
+          ${isConnected ? `
+            <div style="margin-top:14px;padding:12px 14px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.25);border-radius:8px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+                <div>
+                  <div style="font-weight:700;font-size:13px;color:var(--text-primary);display:flex;align-items:center;gap:6px;">
+                    <span>📁</span> <span>Backup Folder in Google Drive: <b>RestoBill_Backups</b></span>
+                  </div>
+                  <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+                    All your cloud database snapshots are automatically saved to this dedicated folder.
+                  </div>
+                </div>
+                <a href="https://drive.google.com/drive/folders/1kck2GOtxEKXHaxKiZipRZOQrTvj03r3N" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm" style="font-size:12px;padding:6px 14px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
+                  <span>📂 Open "RestoBill_Backups" in Drive</span> ↗
+                </a>
+              </div>
+              <div style="margin-top:8px;font-size:11px;color:var(--text-secondary);line-height:1.4;border-top:1px dashed rgba(255,255,255,0.1);padding-top:6px;">
+                💡 <b>Looking in Google Drive?</b> Due to Google security policies (<code>drive.file</code> scope), backups are strictly stored inside <b>RestoBill_Backups</b> (they cannot be written into manually created folders such as "Database"). Click the button above to view all files!
+              </div>
+            </div>
+          ` : ''}
         `;
 
         // Event: Paste credentials.json
@@ -1115,9 +1217,10 @@ window.SettingsUI = {
         document.getElementById('btn-open-gdrive-auth')?.addEventListener('click', async () => {
           try {
             const urlRes = await window.api.gdrive.getAuthUrl();
-            if (urlRes?.success && urlRes?.data) {
-              window.api.app.openExternal(urlRes.data);
-              this.promptAuthCode();
+            const authUrl = urlRes?.data || (typeof urlRes === 'string' ? urlRes : null);
+            if (authUrl) {
+              try { window.open(authUrl, '_blank'); } catch (ignore) {}
+              this.promptAuthCode(authUrl);
             } else {
               window.App.showToast(urlRes?.error || 'Please paste credentials.json content first!', 'warning');
               this.promptPasteCredentials();
@@ -1129,11 +1232,17 @@ window.SettingsUI = {
         });
 
         // Event: Disconnect
-        document.getElementById('btn-disconnect-gdrive')?.addEventListener('click', async () => {
-          if (confirm('Disconnect Google Drive? You can re-paste or re-connect anytime.')) {
+        document.getElementById('btn-disconnect-gdrive')?.addEventListener('click', async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const confirmed = confirm('Disconnect Google Drive? You can re-authorize or switch accounts anytime.');
+          if (!confirmed) return;
+          try {
             await window.api.gdrive.disconnect();
             window.App.showToast('Google Drive disconnected', 'info');
             this.render();
+          } catch (err) {
+            window.App.showToast('Disconnect error: ' + err.message, 'error');
           }
         });
       }
@@ -1141,16 +1250,135 @@ window.SettingsUI = {
       console.warn('Google drive status error:', err);
     }
 
+    // Download .db Database
+    const btnDownloadDb = document.getElementById('btn-download-db');
+    if (btnDownloadDb) {
+      btnDownloadDb.addEventListener('click', async () => {
+        try {
+          window.App.showToast('📥 Preparing SQLite database export...', 'info', 1500);
+          await window.api.app.exportDatabase();
+          window.App.showToast('Database (.db) downloaded successfully!', 'success', 3000);
+        } catch (err) {
+          window.App.showToast('Export failed: ' + err.message, 'error');
+        }
+      });
+    }
+
+    // Upload .db Database
+    const btnUploadDb = document.getElementById('btn-upload-db');
+    const inputUploadDb = document.getElementById('input-upload-db');
+    if (btnUploadDb && inputUploadDb) {
+      btnUploadDb.addEventListener('click', () => {
+        inputUploadDb.value = '';
+        inputUploadDb.click();
+      });
+
+      inputUploadDb.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (file.size > 100 * 1024 * 1024) {
+          window.App.showToast('Database file size cannot exceed 100MB', 'warning');
+          return;
+        }
+
+        const sizeFormatted = (file.size / 1024).toFixed(1) + ' KB';
+        const reader = new FileReader();
+
+        reader.onload = async (ev) => {
+          try {
+            const arrayBuffer = ev.target.result;
+            const uint8 = new Uint8Array(arrayBuffer);
+            const magic = String.fromCharCode(...uint8.slice(0, 16));
+
+            if (!magic.startsWith('SQLite format 3')) {
+              window.App.showToast('Invalid file: Selected file is not a valid SQLite 3 database.', 'error', 5000);
+              return;
+            }
+
+            // Prompt user confirmation before overwriting active database
+            window.App.showModal({
+              title: '⚠️ Restore Database from File?',
+              bodyHtml: `
+                <div style="padding:12px 6px;">
+                  <div style="background:rgba(239, 68, 68, 0.1);border:1px solid rgba(239, 68, 68, 0.3);border-radius:8px;padding:14px;margin-bottom:16px;">
+                    <div style="font-weight:700;font-size:14px;color:var(--color-danger);margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                      <span>⚠️</span> Overwrite Warning
+                    </div>
+                    <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
+                      Restoring this database file will replace all current menu items, categories, orders, customers, and settings with the uploaded backup.
+                    </div>
+                  </div>
+
+                  <div style="background:var(--bg-tertiary);border-radius:8px;padding:12px;border:1px solid var(--border-color);font-size:12px;margin-bottom:12px;">
+                    <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
+                      <span style="color:var(--text-muted);">Selected File:</span>
+                      <span style="font-weight:700;color:var(--text-primary);">${file.name}</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;">
+                      <span style="color:var(--text-muted);">File Size:</span>
+                      <span style="font-weight:700;color:var(--text-primary);">${sizeFormatted}</span>
+                    </div>
+                  </div>
+
+                  <p style="font-size:12px;color:var(--text-muted);margin:0;">
+                    Click <b>Restore & Populate</b> to import this database and refresh all records.
+                  </p>
+                </div>
+              `,
+              footerButtons: [
+                {
+                  text: 'Cancel',
+                  className: 'btn btn-outline btn-sm',
+                  onClick: () => window.App.closeModal()
+                },
+                {
+                  text: '⚡ Restore & Populate All Records',
+                  className: 'btn btn-primary btn-sm btn-danger',
+                  onClick: async () => {
+                    try {
+                      window.App.closeModal();
+                      window.App.showToast('Restoring database and populating all records...', 'info', 4000);
+                      const res = await window.api.app.importDatabase(arrayBuffer);
+                      if (res.success) {
+                        window.App.showToast('✅ Database restored successfully! Reloading...', 'success', 3000);
+                        setTimeout(() => {
+                          window.location.reload();
+                        }, 1200);
+                      } else {
+                        window.App.showToast(res.error || 'Database restoration failed', 'error');
+                      }
+                    } catch (err) {
+                      window.App.showToast('Failed to import database: ' + err.message, 'error');
+                    }
+                  }
+                }
+              ]
+            });
+          } catch (readErr) {
+            window.App.showToast('Failed to read database file: ' + readErr.message, 'error');
+          }
+        };
+
+        reader.readAsArrayBuffer(file);
+      });
+    }
+
     // Backup Now Button
     document.getElementById('btn-trigger-backup')?.addEventListener('click', async () => {
       try {
         window.App.showToast('Creating database backup to Google Drive...', 'info');
         const res = await window.api.gdrive.backup();
-        if (res.success) {
-          window.App.showToast('Database backed up to Google Drive successfully!', 'success');
+        const data = res?.data || res || {};
+        const isUploaded = Boolean(data.uploadedToDrive || res.uploadedToDrive);
+        if (isUploaded) {
+          const name = data.backup?.name || res.backup?.name || 'database backup';
+          window.App.showToast(`✅ Database uploaded to Google Drive ("RestoBill_Backups") as ${name}!`, 'success', 6000);
           this.render();
         } else {
-          window.App.showToast(res.error || 'Backup failed', 'error');
+          const reason = data.driveError || res.driveError || (res.error ? res.error : 'Google Drive is not connected');
+          window.App.showToast(`⚠️ ${reason}. Database downloaded locally instead.`, 'warning', 6000);
+          this.render();
         }
       } catch (err) {
         window.App.showToast(err.message, 'error');
@@ -1170,24 +1398,28 @@ window.SettingsUI = {
 
     try {
       const res = await window.api.gdrive.getBackups();
-      if (res.success && res.data && res.data.length > 0) {
-        listContainer.innerHTML = res.data.map(b => `
+      const backups = (res?.success && Array.isArray(res?.data)) ? res.data : (Array.isArray(res) ? res : []);
+      if (backups && backups.length > 0) {
+        listContainer.innerHTML = backups.map(b => `
           <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border-color);border-radius:var(--radius-sm);margin-bottom:8px;">
             <div style="display:flex;align-items:center;gap:12px;">
               <span style="font-size:22px;">📁</span>
               <div>
                 <div style="font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:8px;">
                   <span>${b.name}</span>
-                  <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:var(--color-success);font-weight:700;">LATEST</span>
+                  <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:var(--color-success);font-weight:700;">${b.uploadedToDrive ? 'GOOGLE DRIVE' : 'LOCAL'}</span>
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
                   ${window.App.formatDateTime(b.createdAt || b.createdTime || b.created_at)} &bull; Size: ${b.sizeFormatted || ''}
                 </div>
               </div>
             </div>
-            <button class="btn btn-outline btn-sm btn-restore-backup" data-id="${b.id}" style="color:var(--color-primary);border-color:var(--color-primary);">
-              Restore
-            </button>
+            <div style="display:flex;align-items:center;gap:8px;">
+              ${b.driveUrl ? `<a href="${b.driveUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="font-size:11px;text-decoration:none;">View in Drive ↗</a>` : ''}
+              <button class="btn btn-outline btn-sm btn-restore-backup" data-id="${b.id}" style="color:var(--color-primary);border-color:var(--color-primary);">
+                Restore
+              </button>
+            </div>
           </div>
         `).join('');
 
@@ -1199,7 +1431,10 @@ window.SettingsUI = {
                 window.App.showToast('Restoring database from Google Drive...', 'info');
                 const r = await window.api.gdrive.restore(fileId);
                 if (r.success) {
-                  window.App.showToast('Database restored! Please restart RestoBill.', 'success');
+                  window.App.showToast('✅ Database restored successfully! Reloading...', 'success', 3000);
+                  setTimeout(() => {
+                    window.location.reload();
+                  }, 1200);
                 } else {
                   window.App.showToast(r.error || 'Restore failed', 'error');
                 }
@@ -1217,18 +1452,26 @@ window.SettingsUI = {
     }
   },
 
-  promptAuthCode() {
+  promptAuthCode(authUrl) {
     window.App.showModal({
       title: 'Google Drive Authorization',
       bodyHtml: `
         <div style="background:rgba(99, 102, 241, 0.1);border:1px solid rgba(99, 102, 241, 0.3);border-radius:8px;padding:14px;margin-bottom:16px;">
           <div style="font-weight:700;font-size:13px;color:var(--accent-light);margin-bottom:6px;">
-            📌 Quick Steps to Authorize:
+            📌 Quick Steps to Authorize (sherepunjab401@gmail.com):
           </div>
           <ol style="font-size:12px;color:var(--text-secondary);margin:0;padding-left:18px;line-height:1.7;">
-            <li>In the browser window that just opened, log in with your Google account and click <b>Continue / Allow</b>.</li>
-            <li>Your browser will redirect to a page starting with <code>http://localhost/?code=...</code> (the page might say <i>"This site can't be reached"</i> – that is normal!).</li>
-            <li>Copy the full address from the browser's address bar (or just the code), paste it below, and click <b>Verify & Connect</b>.</li>
+            ${authUrl ? `
+              <li style="margin-bottom:6px;">
+                Open Google Login for <b>sherepunjab401@gmail.com</b>:<br>
+                <a href="${authUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm" style="display:inline-flex;align-items:center;gap:6px;margin:6px 0;text-decoration:none;font-weight:600;">
+                  <span>🌐 Open Google Authorization Page</span> ↗
+                </a>
+              </li>
+            ` : '<li>Sign in to Google with <b>sherepunjab401@gmail.com</b>.</li>'}
+            <li>Log in with <b>sherepunjab401@gmail.com</b> and click <b>Continue / Allow</b>.</li>
+            <li>Google will redirect to a page starting with <code>http://localhost/?code=4/0A...</code> (the browser may say <i>"This site can't be reached"</i> – that is 100% normal!).</li>
+            <li>Copy the full address from the address bar (or just the code), paste it below, and click <b>Verify & Connect</b>.</li>
           </ol>
         </div>
 
@@ -1266,12 +1509,13 @@ window.SettingsUI = {
             try {
               window.App.showToast('Verifying with Google...', 'info');
               const res = await window.api.gdrive.authenticate(code);
-              if (res.success) {
-                window.App.showToast('Google Drive connected successfully!', 'success');
+              const data = res?.data || res;
+              if (data?.success || res?.success) {
+                window.App.showToast('✅ Google Drive connected successfully!', 'success');
                 window.App.closeModal();
                 this.render();
               } else {
-                window.App.showToast(res.error || 'Authentication failed. Please verify the code and try again.', 'error');
+                window.App.showToast(data?.error || res?.error || 'Authentication failed. Please verify the code and try again.', 'error');
               }
             } catch (err) {
               window.App.showToast(err.message, 'error');

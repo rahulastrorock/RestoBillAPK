@@ -474,53 +474,110 @@ window.ReportsUI = {
     }
 
     let csvContent = '';
-    const escapeCsv = (s) => `"${String(s || '').replace(/"/g, '""')}"`;
+    let reportTitle = 'Report';
+    let recordCount = 0;
+    let totalAmt = null;
+    const escapeCsv = (s) => `"${String(s === null || s === undefined ? '' : s).replace(/"/g, '""')}"`;
 
     if (this.currentData.type === 'sales') {
+      reportTitle = `Sales Report (${this.startDate} to ${this.endDate})`;
       const headers = ['Date', 'Orders', 'Revenue', 'GST Collected', 'Discounts', 'Average Order'];
-      const rows = (this.currentData.rows || []).map(r => [
-        escapeCsv(r.date),
-        r.orders,
-        r.revenue,
-        r.gst_collected,
-        r.discounts,
-        r.avg_order
-      ].join(','));
+      const rows = (this.currentData.rows || []).map(r => {
+        if (r.revenue) totalAmt = (totalAmt || 0) + parseFloat(r.revenue);
+        recordCount++;
+        return [
+          escapeCsv(r.date),
+          r.orders,
+          r.revenue,
+          r.gst_collected,
+          r.discounts,
+          r.avg_order
+        ].join(',');
+      });
       csvContent = [headers.join(','), ...rows].join('\n');
     } else if (this.currentData.type === 'gst') {
-      const headers = ['GST Rate', 'Invoices', 'Taxable Value', 'CGST', 'SGST', 'Total Tax', 'Gross Value'];
-      const rows = (this.currentData.byRate || []).map(r => [
-        `${r.gst_rate}%`,
-        r.invoice_count,
-        r.taxable_value,
-        r.cgst,
-        r.sgst,
-        r.total_tax,
-        r.total_value
-      ].join(','));
+      reportTitle = `GST GSTR-1 Report (${this.startDate} to ${this.endDate})`;
+      const headers = ['Section', 'Rate / HSN', 'Invoices / Qty', 'Taxable Value', 'CGST', 'SGST', 'Total Tax', 'Gross Value'];
+      const rows = [];
+      (this.currentData.byRate || []).forEach(r => {
+        recordCount++;
+        if (r.total_value) totalAmt = (totalAmt || 0) + parseFloat(r.total_value);
+        rows.push([
+          'Rate Summary',
+          `${r.gst_rate}%`,
+          r.invoice_count,
+          r.taxable_value,
+          r.cgst,
+          r.sgst,
+          r.total_tax,
+          r.total_value
+        ].join(','));
+      });
+      (this.currentData.byHsn || []).forEach(h => {
+        recordCount++;
+        rows.push([
+          'HSN Summary',
+          escapeCsv(h.hsn_sac || '996331'),
+          h.total_quantity,
+          h.taxable_value,
+          h.cgst,
+          h.sgst,
+          (parseFloat(h.cgst || 0) + parseFloat(h.sgst || 0)).toFixed(2),
+          h.total_value
+        ].join(','));
+      });
+      csvContent = [headers.join(','), ...rows].join('\n');
+    } else if (this.currentData.type === 'items') {
+      reportTitle = `Item Sales Analysis (${this.startDate} to ${this.endDate})`;
+      const headers = ['Type', 'Item / Category', 'Quantity Sold', 'Total Sales Amount', 'Average Price'];
+      const rows = [];
+      (this.currentData.items || []).forEach(i => {
+        recordCount++;
+        if (i.total_amount) totalAmt = (totalAmt || 0) + parseFloat(i.total_amount);
+        rows.push([
+          'Top Selling Item',
+          escapeCsv(i.name),
+          i.total_qty,
+          i.total_amount,
+          (i.avg_price || (i.total_amount / (i.total_qty || 1))).toFixed(2)
+        ].join(','));
+      });
+      (this.currentData.cats || []).forEach(c => {
+        rows.push([
+          'Category Breakdown',
+          escapeCsv(c.category_name || 'Uncategorized'),
+          c.total_qty || 0,
+          c.total_amount || 0,
+          ''
+        ].join(','));
+      });
       csvContent = [headers.join(','), ...rows].join('\n');
     } else if (this.currentData.type === 'expenses') {
+      reportTitle = `Expenses Report (${this.startDate} to ${this.endDate})`;
       const headers = ['Date', 'Category', 'Description', 'Amount', 'Recorded By'];
-      const rows = (this.currentData.expenses || []).map(e => [
-        escapeCsv(e.date),
-        escapeCsv(e.category),
-        escapeCsv(e.description),
-        e.amount,
-        escapeCsv(e.user_name)
-      ].join(','));
+      const rows = (this.currentData.expenses || []).map(e => {
+        recordCount++;
+        if (e.amount) totalAmt = (totalAmt || 0) + parseFloat(e.amount);
+        return [
+          escapeCsv(e.date),
+          escapeCsv(e.category),
+          escapeCsv(e.description),
+          e.amount,
+          escapeCsv(e.user_name)
+        ].join(',');
+      });
       csvContent = [headers.join(','), ...rows].join('\n');
     } else {
       window.App.showToast('Export not available for this tab', 'info');
       return;
     }
 
-    try {
-      const res = await window.api.app.exportData(this.activeTab, csvContent);
-      if (res.success && res.data) {
-        window.App.showToast('Report exported successfully!', 'success');
-      }
-    } catch (err) {
-      window.App.showToast('Export failed: ' + err.message, 'error');
-    }
+    await window.App.exportDataWithEmail({
+      type: this.activeTab,
+      csvContent,
+      title: reportTitle,
+      count: recordCount,
+      totalAmount: totalAmt
+    });
   }
 };
