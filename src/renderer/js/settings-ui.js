@@ -1458,18 +1458,18 @@ window.SettingsUI = {
       bodyHtml: `
         <div style="background:rgba(99, 102, 241, 0.1);border:1px solid rgba(99, 102, 241, 0.3);border-radius:8px;padding:14px;margin-bottom:16px;">
           <div style="font-weight:700;font-size:13px;color:var(--accent-light);margin-bottom:6px;">
-            📌 Quick Steps to Authorize (sherepunjab401@gmail.com):
+            📌 Quick Steps to Authorize:
           </div>
           <ol style="font-size:12px;color:var(--text-secondary);margin:0;padding-left:18px;line-height:1.7;">
             ${authUrl ? `
               <li style="margin-bottom:6px;">
-                Open Google Login for <b>sherepunjab401@gmail.com</b>:<br>
+                Open Google Login:<br>
                 <a href="${authUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm" style="display:inline-flex;align-items:center;gap:6px;margin:6px 0;text-decoration:none;font-weight:600;">
                   <span>🌐 Open Google Authorization Page</span> ↗
                 </a>
               </li>
-            ` : '<li>Sign in to Google with <b>sherepunjab401@gmail.com</b>.</li>'}
-            <li>Log in with <b>sherepunjab401@gmail.com</b> and click <b>Continue / Allow</b>.</li>
+            ` : '<li>Sign in to your Google account.</li>'}
+            <li>Log in with your Google account and click <b>Continue / Allow</b>.</li>
             <li>Google will redirect to a page starting with <code>http://localhost/?code=4/0A...</code> (the browser may say <i>"This site can't be reached"</i> – that is 100% normal!).</li>
             <li>Copy the full address from the address bar (or just the code), paste it below, and click <b>Verify & Connect</b>.</li>
           </ol>

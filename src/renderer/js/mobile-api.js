@@ -613,13 +613,7 @@
     if (credsRaw) {
       try {
         const parsed = JSON.parse(credsRaw);
-        const cid = parsed?.installed?.client_id || parsed?.web?.client_id;
-        // If stored client_id is old project, upgrade to new restobill-512508 credentials
-        if (cid && cid.startsWith('529168276033')) {
-          localStorage.setItem('gdrive_credentials_json', JSON.stringify(DEFAULT_GDRIVE_CREDS, null, 2));
-          return DEFAULT_GDRIVE_CREDS;
-        }
-        if (cid) return parsed;
+        if (parsed?.installed?.client_id || parsed?.web?.client_id) return parsed;
       } catch (e) {}
     }
     return DEFAULT_GDRIVE_CREDS;
@@ -633,13 +627,7 @@
     if (raw) {
       try {
         const obj = JSON.parse(raw);
-        // If this token was for the old rahul.astrorock account or old project, clear it
-        if (obj?.email === 'rahul.astrorock@gmail.com' || (obj?.refresh_token && obj.refresh_token.includes('0g47L5dZBwAeFCgYIARAAGBASNwF'))) {
-          localStorage.removeItem('gdrive_token_json');
-          localStorage.removeItem('gdrive_connected');
-          return null;
-        }
-        if (obj.refresh_token || (obj.access_token && !obj.access_token.startsWith('4/'))) {
+        if (obj && (obj.refresh_token || (obj.access_token && !obj.access_token.startsWith('4/')))) {
           return obj;
         }
       } catch (e) {}
@@ -1811,7 +1799,7 @@
         const hasCredentials = Boolean(creds?.installed?.client_id || creds?.web?.client_id);
         const hasToken = Boolean(tokenObj && (tokenObj.refresh_token || (tokenObj.access_token && !tokenObj.access_token.startsWith('4/'))));
         const isConnected = Boolean(hasCredentials && hasToken && localStorage.getItem('gdrive_disconnected') !== 'true');
-        const email = isConnected ? (tokenObj?.email || 'sherepunjab401@gmail.com') : null;
+        const email = isConnected ? (tokenObj?.email || 'Google Drive Connected') : null;
         const folderId = isConnected ? (localStorage.getItem('gdrive_folder_id') || null) : null;
         const folderUrl = folderId ? (localStorage.getItem('gdrive_folder_url') || `https://drive.google.com/drive/folders/${folderId}`) : null;
 
