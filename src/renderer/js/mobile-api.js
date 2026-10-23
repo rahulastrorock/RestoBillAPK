@@ -620,7 +620,7 @@
   }
 
   function getStoredGdriveTokenObj() {
-    if (localStorage.getItem('gdrive_disconnected') === 'true') {
+    if (localStorage.getItem('gdrive_disconnected') === 'true' && localStorage.getItem('gdrive_connected') !== 'true') {
       return null;
     }
     const raw = localStorage.getItem('gdrive_token_json');
@@ -1707,75 +1707,145 @@
       }),
 
       saveToken: apiCall(async (tokenText) => {
-        if (!tokenText || typeof tokenText !== 'string') throw new Error('Token text cannot be empty');
+        if (!tokenText || typeof tokenText !== 'string') throw new Error('Token or authorization code cannot be empty');
         try {
-          let tokenObj;
           let trimmed = tokenText.trim();
-          if (trimmed.includes('code=')) {
-            const m = trimmed.match(/code=([^&]+)/);
-            if (m) trimmed = decodeURIComponent(m[1]);
-          }
 
+          // Auto-extract code if redirected URL was pasted
+          if (trimmed.includes('code=')) {
+            try {
+              const urlObj = new URL(trimmed.startsWith('http') ? trimmed : `http://localhost/${trimmed}`);
+              const c = urlObj.searchParams.get('code');
+              if (c) trimmed = c.trim();
+            } catch (e) {
+              const m = trimmed.match(/[?&]code=([^&#\s]+)/) || trimmed.match(/code=([^&#\s]+)/);
+              if (m) trimmed = decodeURIComponent(m[1]).trim();
+            }
+          }
+          trimmed = trimmed.replace(/#.*$/, '').trim();
+
+          let tokenObj = null;
           if (trimmed.startsWith('{')) {
-            tokenObj = JSON.parse(trimmed);
+            try {
+              tokenObj = JSON.parse(trimmed);
+            } catch (e) {
+              throw new Error('Invalid JSON format: ' + e.message);
+            }
+            if (!tokenObj.access_token && tokenObj.token) {
+              tokenObj.access_token = tokenObj.token;
+            }
+            if (!tokenObj.refresh_token && tokenObj.refreshToken) {
+              tokenObj.refresh_token = tokenObj.refreshToken;
+            }
           } else {
             // Raw auth code or access token
-            tokenObj = { access_token: trimmed, token_type: 'Bearer', created_at: Date.now() };
+            tokenObj = {
+              access_token: trimmed,
+              token_type: 'Bearer',
+              created_at: Date.now()
+            };
           }
 
-          // If this is an auth code (starts with 4/), try immediate exchange
-          if (tokenObj.access_token && tokenObj.access_token.startsWith('4/')) {
+          // If this is an authorization code (starts with 4/), exchange it with Google immediately
+          const isAuthCode = Boolean(tokenObj.access_token && tokenObj.access_token.startsWith('4/'));
+          if (isAuthCode) {
             const creds = getStoredGdriveCreds();
             const client = creds.installed || creds.web || {};
+            if (!client.client_id || !client.client_secret) {
+              throw new Error('Google OAuth credentials not found. Please paste credentials.json first.');
+            }
             const redirectUri = (client.redirect_uris && client.redirect_uris[0]) || 'http://localhost';
 
-            if (client.client_id && client.client_secret) {
-              const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: new URLSearchParams({
-                  client_id: client.client_id,
-                  client_secret: client.client_secret,
-                  code: tokenObj.access_token,
-                  redirect_uri: redirectUri,
-                  grant_type: 'authorization_code'
-                })
-              });
+            const tokenResp = await fetch('https://oauth2.googleapis.com/token', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: new URLSearchParams({
+                client_id: client.client_id,
+                client_secret: client.client_secret,
+                code: tokenObj.access_token,
+                redirect_uri: redirectUri,
+                grant_type: 'authorization_code'
+              })
+            });
 
-              if (tokenResp.ok) {
-                const data = await tokenResp.json();
-                tokenObj = {
-                  access_token: data.access_token,
-                  refresh_token: data.refresh_token,
-                  token_type: data.token_type || 'Bearer',
-                  expires_at: Date.now() + ((data.expires_in || 3600) * 1000),
-                  created_at: Date.now()
-                };
-
-                // Fetch account profile
-                try {
-                  const aboutResp = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
-                    headers: { 'Authorization': `Bearer ${data.access_token}` }
-                  });
-                  if (aboutResp.ok) {
-                    const aboutData = await aboutResp.json();
-                    if (aboutData?.user?.emailAddress) {
-                      tokenObj.email = aboutData.user.emailAddress;
-                    }
-                  }
-                } catch (ignore) {}
-              } else {
-                const errTxt = await tokenResp.text();
-                console.warn('[RestoBill] Immediate OAuth exchange failed:', errTxt);
+            if (!tokenResp.ok) {
+              let errorDetail = '';
+              try {
+                const errJson = await tokenResp.json();
+                errorDetail = errJson.error_description || errJson.error || '';
+              } catch (e) {
+                errorDetail = await tokenResp.text();
               }
+              console.error('[RestoBill] Immediate OAuth exchange failed:', errorDetail);
+              if (errorDetail.includes('invalid_grant')) {
+                throw new Error('This authorization code is invalid or has already been used. Please click "Authorize Google" to generate a fresh code.');
+              }
+              throw new Error(`Google authorization error: ${errorDetail || 'HTTP ' + tokenResp.status}`);
+            }
+
+            const data = await tokenResp.json();
+            tokenObj = {
+              access_token: data.access_token,
+              refresh_token: data.refresh_token || tokenObj.refresh_token,
+              token_type: data.token_type || 'Bearer',
+              expires_at: Date.now() + ((data.expires_in || 3600) * 1000),
+              created_at: Date.now()
+            };
+          }
+
+          // If we have a refresh_token and need an access_token, fetch one now
+          if (tokenObj.refresh_token && (!tokenObj.access_token || tokenObj.access_token.startsWith('4/') || (tokenObj.expires_at && tokenObj.expires_at < Date.now()))) {
+            const creds = getStoredGdriveCreds();
+            const client = creds.installed || creds.web || {};
+            const cid = tokenObj.client_id || client.client_id;
+            const csec = tokenObj.client_secret || client.client_secret;
+            if (cid && csec) {
+              try {
+                const refResp = await fetch('https://oauth2.googleapis.com/token', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                  body: new URLSearchParams({
+                    client_id: cid,
+                    client_secret: csec,
+                    refresh_token: tokenObj.refresh_token,
+                    grant_type: 'refresh_token'
+                  })
+                });
+                if (refResp.ok) {
+                  const rData = await refResp.json();
+                  tokenObj.access_token = rData.access_token;
+                  tokenObj.expires_at = Date.now() + ((rData.expires_in || 3600) * 1000);
+                }
+              } catch (ignore) {}
             }
           }
 
+          // Fetch user profile email
+          if (tokenObj.access_token && !tokenObj.access_token.startsWith('4/')) {
+            try {
+              const aboutResp = await fetch('https://www.googleapis.com/drive/v3/about?fields=user', {
+                headers: { 'Authorization': `Bearer ${tokenObj.access_token}` }
+              });
+              if (aboutResp.ok) {
+                const aboutData = await aboutResp.json();
+                if (aboutData?.user?.emailAddress) {
+                  tokenObj.email = aboutData.user.emailAddress;
+                }
+              }
+            } catch (ignore) {}
+
+            try {
+              await getOrCreateBackupFolder(tokenObj.access_token);
+            } catch (ignore) {}
+          }
+
+          // Persist token and activate connection
+          localStorage.removeItem('gdrive_disconnected');
           localStorage.setItem('gdrive_token_json', JSON.stringify(tokenObj, null, 2));
           localStorage.setItem('gdrive_connected', 'true');
           return { success: true, token: tokenObj };
         } catch (e) {
-          throw new Error('Failed to save token: ' + e.message);
+          throw new Error(e.message || 'Failed to save token');
         }
       }),
 
@@ -1806,7 +1876,7 @@
         return {
           connected: isConnected,
           hasCredentials,
-          hasToken: isConnected,
+          hasToken: hasToken && isConnected,
           email,
           folderId,
           folderUrl,

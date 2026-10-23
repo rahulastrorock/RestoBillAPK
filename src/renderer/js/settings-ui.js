@@ -1596,7 +1596,7 @@ window.SettingsUI = {
       bodyHtml: `
         <div style="background:rgba(34, 197, 94, 0.08);border:1px solid rgba(34, 197, 94, 0.25);border-radius:8px;padding:12px;margin-bottom:14px;">
           <div style="font-weight:700;font-size:12px;color:var(--color-success);margin-bottom:4px;">
-            🔒 Paste OAuth Token or Authorization Code
+            🔒 Paste OAuth Token, Token JSON, or Authorization Code
           </div>
           <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">
             Paste your <code>gdrive_token.json</code> content, OAuth Access Token, or the <code>4/0A...</code> authorization code from Google.
@@ -1604,7 +1604,10 @@ window.SettingsUI = {
         </div>
 
         <div class="form-group">
-          <label style="font-weight:600;font-size:13px;">Token JSON or Authorization Code</label>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <label style="font-weight:600;font-size:13px;margin:0;">Token JSON or Authorization Code</label>
+            ${existing ? `<button type="button" class="btn btn-outline btn-sm" id="btn-copy-token-modal" style="font-size:11px;padding:2px 8px;cursor:pointer;">📋 Copy Token</button>` : ''}
+          </div>
           <textarea id="modal-gdrive-token-json" rows="8" style="font-family:monospace;font-size:11px;width:100%;padding:10px;line-height:1.4;" placeholder='Paste token JSON or raw auth code here...'>${existing}</textarea>
         </div>
       `,
@@ -1624,22 +1627,36 @@ window.SettingsUI = {
               return;
             }
             try {
-              window.App.showToast('Saving token...', 'info');
+              window.App.showToast('Saving & verifying token with Google...', 'info');
               const res = await window.api.gdrive.saveToken(raw);
-              if (res.success) {
-                window.App.showToast('Google Drive connected successfully!', 'success');
+              const data = res?.data || res;
+              if (data?.success || res?.success) {
+                window.App.showToast('✅ Google Drive connected successfully!', 'success');
                 window.App.closeModal();
                 this.render();
               } else {
-                window.App.showToast(res.error || 'Failed to save token', 'error');
+                window.App.showToast(data?.error || res?.error || 'Failed to save token', 'error', 6000);
               }
             } catch (err) {
-              window.App.showToast(err.message, 'error');
+              window.App.showToast(err.message || 'Failed to save token', 'error', 6000);
             }
           }
         }
       ]
     });
+
+    setTimeout(() => {
+      document.getElementById('btn-copy-token-modal')?.addEventListener('click', () => {
+        const text = document.getElementById('modal-gdrive-token-json')?.value;
+        if (text) {
+          navigator.clipboard.writeText(text).then(() => {
+            window.App.showToast('📋 Token copied to clipboard! You can paste it into your mobile app.', 'success', 4000);
+          }).catch(() => {
+            window.App.showToast('Please select and copy the text in the box above', 'info');
+          });
+        }
+      });
+    }, 50);
   },
 
   async renderAboutTab(container) {
