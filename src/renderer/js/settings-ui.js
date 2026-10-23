@@ -1146,6 +1146,8 @@ window.SettingsUI = {
           ? window.App.formatDateTime(statusRes.data.lastBackup)
           : 'None';
 
+        const folderLink = statusRes?.data?.folderUrl || (statusRes?.data?.folderId ? `https://drive.google.com/drive/folders/${statusRes.data.folderId}` : 'https://drive.google.com/drive/my-drive');
+
         statusBox.innerHTML = `
           <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;">
             <div style="display:flex;align-items:flex-start;gap:14px;flex:1;min-width:240px;">
@@ -1192,8 +1194,8 @@ window.SettingsUI = {
                     All your cloud database snapshots are automatically saved to this dedicated folder.
                   </div>
                 </div>
-                <a href="https://drive.google.com/drive/folders/1kck2GOtxEKXHaxKiZipRZOQrTvj03r3N" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm" style="font-size:12px;padding:6px 14px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
-                  <span>📂 Open "RestoBill_Backups" in Drive</span> ↗
+                <a href="${folderLink}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm" style="font-size:12px;padding:6px 14px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;">
+                  <span>📂 Open in Drive</span> ↗
                 </a>
               </div>
               <div style="margin-top:8px;font-size:11px;color:var(--text-secondary);line-height:1.4;border-top:1px dashed rgba(255,255,255,0.1);padding-top:6px;">

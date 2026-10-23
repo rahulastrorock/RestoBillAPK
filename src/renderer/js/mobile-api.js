@@ -638,37 +638,41 @@
   async function getOrCreateBackupFolder(accessToken) {
     // 1. Check if folder ID is already stored in localStorage
     const savedFolderId = localStorage.getItem('gdrive_folder_id');
-    if (savedFolderId) {
+    if (savedFolderId && savedFolderId !== 'root') {
       try {
-        const check = await fetch(`https://www.googleapis.com/drive/v3/files/${savedFolderId}?fields=id,name,trashed,webViewLink`, {
+        const check = await fetch(`https://www.googleapis.com/drive/v3/files/${savedFolderId}?fields=id,name,trashed,webViewLink,capabilities(canAddChildren)`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         });
         if (check.ok) {
           const folderData = await check.json();
-          if (!folderData.trashed) return savedFolderId;
+          if (!folderData.trashed && folderData.capabilities?.canAddChildren !== false) {
+            return savedFolderId;
+          }
         }
       } catch (e) {}
+      localStorage.removeItem('gdrive_folder_id');
+      localStorage.removeItem('gdrive_folder_url');
     }
 
-    // 2. Search for existing 'RestoBill_Backups' folder in the user's Google Drive
+    // 2. Search for existing 'RestoBill_Backups' folder with write permission
     try {
-      const search = await fetch("https://www.googleapis.com/drive/v3/files?q=name='RestoBill_Backups'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id,name,webViewLink)", {
+      const search = await fetch("https://www.googleapis.com/drive/v3/files?q=name='RestoBill_Backups'+and+mimeType='application/vnd.google-apps.folder'+and+trashed=false&fields=files(id,name,webViewLink,capabilities(canAddChildren))", {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
       if (search.ok) {
         const sData = await search.json();
-        if (sData.files && sData.files.length > 0) {
-          const foundId = sData.files[0].id;
-          localStorage.setItem('gdrive_folder_id', foundId);
-          if (sData.files[0].webViewLink) {
-            localStorage.setItem('gdrive_folder_url', sData.files[0].webViewLink);
+        const validFolder = (sData.files || []).find(f => f.capabilities?.canAddChildren !== false);
+        if (validFolder) {
+          localStorage.setItem('gdrive_folder_id', validFolder.id);
+          if (validFolder.webViewLink) {
+            localStorage.setItem('gdrive_folder_url', validFolder.webViewLink);
           }
-          return foundId;
+          return validFolder.id;
         }
       }
     } catch (e) {}
 
-    // 3. Create 'RestoBill_Backups' folder if not existing
+    // 3. Create fresh 'RestoBill_Backups' folder
     try {
       const createResp = await fetch('https://www.googleapis.com/drive/v3/files?fields=id,name,webViewLink', {
         method: 'POST',
@@ -687,22 +691,11 @@
         if (cData.webViewLink) {
           localStorage.setItem('gdrive_folder_url', cData.webViewLink);
         }
-        // Grant reader permissions so anyone with the link can view
-        try {
-          await fetch(`https://www.googleapis.com/drive/v3/files/${cData.id}/permissions`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${accessToken}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ role: 'reader', type: 'anyone' })
-          });
-        } catch (e) {}
         return cData.id;
       }
     } catch (e) {}
 
-    return 'root';
+    return null;
   }
 
   async function getValidGdriveToken() {
@@ -1841,6 +1834,8 @@
 
           // Persist token and activate connection
           localStorage.removeItem('gdrive_disconnected');
+          localStorage.removeItem('gdrive_folder_id');
+          localStorage.removeItem('gdrive_folder_url');
           localStorage.setItem('gdrive_token_json', JSON.stringify(tokenObj, null, 2));
           localStorage.setItem('gdrive_connected', 'true');
           return { success: true, token: tokenObj };
@@ -1897,7 +1892,6 @@
         let uploadedToDrive = false;
         let driveFileId = null;
         let driveViewLink = null;
-        const folderUrl = 'https://drive.google.com/drive/folders/1kck2GOtxEKXHaxKiZipRZOQrTvj03r3N';
 
         // Get active access token
         const accessToken = await getValidGdriveToken();
@@ -1905,14 +1899,16 @@
           throw new Error('Google Drive access token not available. Please click Authorize Google or Paste Token to connect.');
         }
 
-        try {
-          const folderId = await getOrCreateBackupFolder(accessToken);
+        // Helper function to perform multipart upload
+        const doUpload = async (targetFolderId) => {
           const metadata = {
             name: fileName,
             mimeType: 'application/x-sqlite3',
-            parents: [folderId],
             description: `RestoBill POS SQLite Database Backup created on ${timestamp}`
           };
+          if (targetFolderId && targetFolderId !== 'root') {
+            metadata.parents = [targetFolderId];
+          }
 
           const boundary = '-------restobill_gdrive_' + Date.now();
           const delimiter = '\r\n--' + boundary + '\r\n';
@@ -1928,7 +1924,7 @@
             closeDelimiter
           ], { type: `multipart/related; boundary=${boundary}` });
 
-          const uploadResp = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,createdTime,webViewLink,parents', {
+          return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,size,createdTime,webViewLink,parents', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${accessToken}`,
@@ -1936,6 +1932,22 @@
             },
             body: multipartBlob
           });
+        };
+
+        try {
+          let folderId = await getOrCreateBackupFolder(accessToken);
+          let uploadResp = await doUpload(folderId);
+
+          // If upload fails with parent permissions error (403), clear cached folder and fallback directly to root
+          if (!uploadResp.ok && uploadResp.status === 403) {
+            const errBody = await uploadResp.clone().text();
+            if (errBody.includes('parent') || errBody.includes('permission')) {
+              console.warn('[RestoBill] Parent folder rejected with 403. Clearing cached folder and retrying directly at root level...', errBody);
+              localStorage.removeItem('gdrive_folder_id');
+              localStorage.removeItem('gdrive_folder_url');
+              uploadResp = await doUpload(null);
+            }
+          }
 
           if (uploadResp.ok) {
             const driveData = await uploadResp.json();
@@ -1965,6 +1977,8 @@
           throw netErr;
         }
 
+        const currentFolderUrl = localStorage.getItem('gdrive_folder_url') || 'https://drive.google.com/drive/my-drive';
+
         // Save last backup timestamp
         localStorage.setItem('gdrive_last_backup', timestamp);
 
@@ -1977,7 +1991,7 @@
           sizeFormatted: (binary.length / 1024).toFixed(1) + ' KB',
           uploadedToDrive: true,
           driveUrl: driveViewLink,
-          folderUrl
+          folderUrl: currentFolderUrl
         };
         backups.unshift(newBackup);
         localStorage.setItem('gdrive_backups_list', JSON.stringify(backups.slice(0, 15)));
