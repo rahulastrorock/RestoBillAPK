@@ -237,6 +237,9 @@ input, select, textarea, button {
 
 .input-icon-wrapper {
   position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
 }
 
 .input-icon {
@@ -248,11 +251,13 @@ input, select, textarea, button {
   height: 18px;
   color: var(--text-muted);
   pointer-events: none;
+  z-index: 2;
 }
 
+.form-group .input-icon-wrapper input,
 .input-icon-wrapper input {
   width: 100%;
-  padding: 12px 14px 12px 44px;
+  padding: 12px 14px 12px 44px !important;
   background: var(--bg-surface);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -260,8 +265,10 @@ input, select, textarea, button {
   font-size: 15px;
   transition: var(--transition-fast);
   outline: none;
+  box-sizing: border-box;
 }
 
+.form-group .input-icon-wrapper input:focus,
 .input-icon-wrapper input:focus {
   border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px var(--accent-primary-glow);
