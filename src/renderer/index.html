@@ -381,11 +381,22 @@
                 </div>
               </div>
               <div class="chart-card">
-                <div class="chart-header">
-                  <h3>Payment Modes</h3>
+                <div class="chart-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px;">
+                  <div>
+                    <h3 id="dash-insights-title">Sales by Category</h3>
+                    <div id="dash-insights-subtitle" style="font-size:11px; color:var(--text-muted); margin-top:2px;">Revenue share by category</div>
+                  </div>
+                  <div class="chart-toggle-pills" id="dash-insights-pills">
+                    <button type="button" class="chart-pill-btn active" data-view="category" id="btn-insight-category">Categories</button>
+                    <button type="button" class="chart-pill-btn" data-view="channel" id="btn-insight-channel">Channels</button>
+                  </div>
                 </div>
-                <div class="chart-body chart-body-sm">
-                  <canvas id="chart-payment-modes"></canvas>
+                <div class="chart-body chart-body-sm" style="position:relative;">
+                  <canvas id="chart-insights"></canvas>
+                  <div id="chart-insights-empty" class="hidden" style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-muted); font-size:12px; text-align:center; padding:16px;">
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:6px; opacity:0.6;"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                    <span>No sales data recorded yet</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -416,53 +427,81 @@
 
         <!-- ── Orders Page ─────────────────────────────────────── -->
         <div id="page-orders" class="page hidden">
-          <div class="page-header" style="flex-wrap: wrap; gap: 12px;">
-            <div class="page-header-left" style="flex-wrap: wrap; gap: 10px; align-items: center;">
-              <div class="orders-phone-search-wrap" style="position:relative; display:flex; align-items:center;">
-                <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15" style="position:absolute; left:10px; color:var(--text-muted); pointer-events:none;"><path d="M2 3a1 1 0 011-1h2.153a1 1 0 01.986.836l.74 4.435a1 1 0 01-.54 1.06l-1.548.773a11.037 11.037 0 006.105 6.105l.774-1.548a1 1 0 011.059-.54l4.435.74a1 1 0 01.836.986V17a1 1 0 01-1 1h-2C7.82 18 2 12.18 2 4V3z"/></svg>
-                <input type="text" id="orders-search-phone" class="input-sm" placeholder="Search customer mobile no... (or bill #)" style="padding-left:32px; width:260px;" autocomplete="off">
+          <!-- Responsive Filter Toolbar -->
+          <div class="orders-filter-toolbar">
+            <!-- Row 1: Full-width Search Input -->
+            <div class="orders-search-row">
+              <div class="orders-phone-search-wrap">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" class="orders-search-icon"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
+                <input type="text" id="orders-search-phone" class="input-sm orders-search-input" placeholder="Search customer mobile no... (or bill #)" autocomplete="off">
               </div>
-              <div class="filter-group">
-                <input type="date" id="orders-start-date" class="input-sm" title="From Date">
+            </div>
+
+            <!-- Row 2: Date Range, Status & Action Controls -->
+            <div class="orders-filter-controls-row">
+              <div class="orders-date-range">
+                <div class="orders-date-input-wrap">
+                  <span class="orders-date-label">From:</span>
+                  <input type="date" id="orders-start-date" class="input-sm orders-date-input" title="From Date">
+                </div>
                 <span class="filter-separator">to</span>
-                <input type="date" id="orders-end-date" class="input-sm" title="To Date">
-                <select id="orders-status-filter" class="input-sm">
+                <div class="orders-date-input-wrap">
+                  <span class="orders-date-label">To:</span>
+                  <input type="date" id="orders-end-date" class="input-sm orders-date-input" title="To Date">
+                </div>
+              </div>
+
+              <div class="orders-actions-cluster">
+                <select id="orders-status-filter" class="input-sm orders-status-select">
                   <option value="">All Status</option>
                   <option value="completed">Completed</option>
                   <option value="voided">Deleted</option>
                 </select>
-                <button class="btn btn-primary btn-sm" id="btn-filter-orders">Filter</button>
-                <button class="btn btn-outline btn-sm" id="btn-reset-orders" type="button" title="Reset Search & Filters">Reset</button>
+
+                <label class="orders-all-dates-toggle">
+                  <input type="checkbox" id="orders-all-dates">
+                  <span>All Dates</span>
+                </label>
+
+                <div class="orders-btn-group">
+                  <button class="btn btn-primary btn-sm" id="btn-filter-orders">Filter</button>
+                  <button class="btn btn-outline btn-sm" id="btn-reset-orders" type="button" title="Reset Search & Filters">Reset</button>
+                  <button class="btn btn-outline btn-sm" id="btn-export-orders" title="Export CSV">📥 CSV</button>
+                </div>
               </div>
-              <label class="orders-all-dates-toggle" style="display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary); cursor:pointer; user-select:none;">
-                <input type="checkbox" id="orders-all-dates">
-                <span>All Dates</span>
-              </label>
-            </div>
-            <div class="page-header-right">
-              <button class="btn btn-outline btn-sm" id="btn-export-orders">📥 Export CSV</button>
             </div>
           </div>
-          <div class="table-container">
-            <table class="data-table" id="orders-table">
-              <thead>
-                <tr>
-                  <th>Invoice #</th>
-                  <th>Date & Time</th>
-                  <th>Type</th>
-                  <th>Table</th>
-                  <th>Customer & Phone</th>
-                  <th>Total</th>
-                  <th>Payment</th>
-                  <th>Status</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="orders-tbody">
-                <!-- Populated by JS -->
-              </tbody>
-            </table>
+
+          <!-- Dual View: Desktop Table + Mobile Smart Cards -->
+          <div class="orders-display-area">
+            <!-- Desktop Data Table (visible on desktop > 900px) -->
+            <div class="table-container orders-desktop-table">
+              <table class="data-table" id="orders-table">
+                <thead>
+                  <tr>
+                    <th>Invoice #</th>
+                    <th>Date & Time</th>
+                    <th>Type</th>
+                    <th>Table</th>
+                    <th>Customer & Phone</th>
+                    <th>Total</th>
+                    <th>Payment</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="orders-tbody">
+                  <!-- Populated by JS -->
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Mobile Smart Cards (visible on mobile <= 900px) -->
+            <div class="orders-mobile-cards" id="orders-cards-list">
+              <!-- Populated by JS -->
+            </div>
           </div>
+
           <div class="pagination" id="orders-pagination"></div>
         </div>
 

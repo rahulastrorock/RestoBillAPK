@@ -4801,4 +4801,379 @@ input:checked + .switch-slider:before {
   padding: 10px 0 16px 0;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   ORDER HISTORY - RESPONSIVE TOOLBAR & SMART MOBILE CARDS
+   ═══════════════════════════════════════════════════════════════════ */
+.orders-filter-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+
+.orders-search-row {
+  width: 100%;
+}
+
+.orders-phone-search-wrap {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.orders-search-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.orders-search-input {
+  width: 100% !important;
+  padding-left: 36px !important;
+  box-sizing: border-box;
+}
+
+.orders-filter-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.orders-date-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.orders-date-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.orders-date-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.orders-date-input {
+  width: 135px;
+}
+
+.orders-actions-cluster {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.orders-status-select {
+  width: 120px;
+}
+
+.orders-all-dates-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.orders-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Dual View: Desktop Table vs Mobile Smart Cards */
+.orders-display-area {
+  width: 100%;
+}
+
+.orders-desktop-table {
+  display: block;
+}
+
+.orders-mobile-cards {
+  display: none;
+}
+
+/* Smart Order Card UI */
+.order-smart-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+
+.order-smart-card.order-card-voided {
+  opacity: 0.65;
+  border-left: 4px solid #ef4444;
+}
+
+.order-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
+.order-card-header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.order-card-id {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-family: monospace;
+}
+
+.order-card-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.order-card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.order-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.order-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.customer-name {
+  font-weight: 600;
+  font-size: 13.5px;
+  color: var(--text-primary);
+}
+
+.customer-phone {
+  font-size: 11.5px;
+  color: var(--accent-primary);
+  font-family: monospace;
+}
+
+.order-card-table {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-surface-active);
+  padding: 1px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  width: fit-content;
+}
+
+.order-card-financials {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.order-card-total {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--accent-primary);
+}
+
+.order-card-total.total-voided {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.order-card-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-color);
+}
+
+.order-action-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-active);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.order-action-pill:active {
+  background: var(--border-color);
+  transform: scale(0.97);
+}
+
+.order-action-pill svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.order-action-pill.action-share-pill {
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.08);
+}
+
+.order-action-pill.action-delete-pill {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ANALYTICS DASHBOARD - INSIGHTS TOGGLE PILLS
+   ═══════════════════════════════════════════════════════════════════ */
+.chart-toggle-pills {
+  display: inline-flex;
+  background: var(--bg-surface-active);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 2px;
+  gap: 2px;
+}
+
+.chart-pill-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chart-pill-btn:hover {
+  color: var(--text-primary);
+}
+
+.chart-pill-btn.active {
+  background: var(--accent-primary);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(249, 115, 22, 0.3);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE MEDIA QUERY OVERRIDES (<= 900px)
+   ═══════════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  .orders-desktop-table {
+    display: none !important;
+  }
+
+  .orders-mobile-cards {
+    display: flex !important;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+  }
+
+  .orders-filter-controls-row {
+    flex-direction: column;
+    align-items: stretch !important;
+    gap: 10px;
+  }
+
+  .orders-date-range {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .orders-date-input-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .orders-date-input {
+    flex: 1;
+    min-width: 0;
+    width: 100% !important;
+  }
+
+  .orders-actions-cluster {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .orders-status-select {
+    flex: 1;
+    min-width: 110px;
+  }
+
+  .orders-all-dates-toggle {
+    margin: 0 4px;
+    white-space: nowrap;
+  }
+
+  .orders-btn-group {
+    width: 100%;
+    display: flex;
+    gap: 6px;
+  }
+
+  .orders-btn-group .btn {
+    flex: 1;
+    text-align: center;
+    justify-content: center;
+    padding: 8px 6px;
+    font-size: 12px;
+  }
+}
+
 

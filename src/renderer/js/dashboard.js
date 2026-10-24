@@ -70,8 +70,9 @@ window.Dashboard = {
       // Top Selling Items
       this.renderTopItems(data.topItems || []);
 
-      // Payment Modes Doughnut Chart
-      this.renderPaymentChart(data.payments || []);
+      // Category & Dining Channel Insights Chart
+      this.dashData = data;
+      await this.renderInsightsChart();
     } catch (err) {
       console.error('Failed to load dashboard metrics:', err);
     }
@@ -110,6 +111,7 @@ window.Dashboard = {
     // Destroy existing charts if reloading
     if (this.charts.salesTrend) this.charts.salesTrend.destroy();
     if (this.charts.hourly) this.charts.hourly.destroy();
+    if (this.charts.insights) this.charts.insights.destroy();
 
     // 1. Sales Trend Chart (Last 7 Days)
     try {
@@ -259,38 +261,190 @@ window.Dashboard = {
     }
   },
 
-  renderPaymentChart(payments) {
-    if (typeof Chart === 'undefined') return;
-    if (this.charts.payments) this.charts.payments.destroy();
+  insightView: 'category', // 'category' or 'channel'
 
-    const ctx = document.getElementById('chart-payment-modes');
+  async renderInsightsChart(viewMode) {
+    if (typeof Chart === 'undefined') return;
+    if (viewMode) this.insightView = viewMode;
+
+    if (this.charts.insights) {
+      this.charts.insights.destroy();
+      this.charts.insights = null;
+    }
+
+    const ctx = document.getElementById('chart-insights');
+    const emptyEl = document.getElementById('chart-insights-empty');
+    const titleEl = document.getElementById('dash-insights-title');
+    const subtitleEl = document.getElementById('dash-insights-subtitle');
+    const btnCat = document.getElementById('btn-insight-category');
+    const btnChan = document.getElementById('btn-insight-channel');
+
     if (!ctx) return;
 
-    const labels = payments.length > 0 ? payments.map(p => p.payment_mode.toUpperCase()) : ['Cash'];
-    const data = payments.length > 0 ? payments.map(p => p.amount) : [1];
-    const colors = ['#22c55e', '#3b82f6', '#f97316', '#a855f7', '#eab308'];
+    // Update active pill button state
+    if (btnCat) btnCat.classList.toggle('active', this.insightView === 'category');
+    if (btnChan) btnChan.classList.toggle('active', this.insightView === 'channel');
 
-    this.charts.payments = new Chart(ctx, {
-      type: 'doughnut',
-      data: {
-        labels,
-        datasets: [{
-          data,
-          backgroundColor: colors.slice(0, labels.length),
-          borderWidth: 0,
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: {
-          legend: {
-            position: 'bottom',
-            labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 }, padding: 12 }
+    // Attach pill click events once
+    if (btnCat && !btnCat._hasListener) {
+      btnCat._hasListener = true;
+      btnCat.onclick = () => this.renderInsightsChart('category');
+    }
+    if (btnChan && !btnChan._hasListener) {
+      btnChan._hasListener = true;
+      btnChan.onclick = () => this.renderInsightsChart('channel');
+    }
+
+    const palette = [
+      '#f97316', '#3b82f6', '#10b981', '#8b5cf6',
+      '#ec4899', '#06b6d4', '#eab308', '#6366f1',
+      '#14b8a6', '#f43f5e'
+    ];
+
+    const getLocalDate = (d) => (window.App?.getLocalDateString ? window.App.getLocalDateString(d) : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+    const today = new Date();
+    const todayStr = getLocalDate(today);
+
+    if (this.insightView === 'category') {
+      if (titleEl) titleEl.textContent = 'Sales by Category';
+      if (subtitleEl) subtitleEl.textContent = 'Revenue share & item volume by category';
+
+      try {
+        let catRes = await window.api.reports.categoryWiseSales(todayStr, todayStr);
+        let categories = (catRes && catRes.success && catRes.data) ? catRes.data : [];
+
+        // If today has no category sales recorded yet, load last 7 days for rich visual insight
+        if (!categories.length) {
+          const past7 = new Date();
+          past7.setDate(today.getDate() - 6);
+          catRes = await window.api.reports.categoryWiseSales(getLocalDate(past7), todayStr);
+          if (catRes && catRes.success && catRes.data && catRes.data.length > 0) {
+            categories = catRes.data;
+            if (subtitleEl) subtitleEl.textContent = 'Revenue share by category (Last 7 Days)';
           }
-        },
-        cutout: '70%'
+        }
+
+        if (!categories || categories.length === 0) {
+          if (emptyEl) emptyEl.classList.remove('hidden');
+          return;
+        }
+
+        if (emptyEl) emptyEl.classList.add('hidden');
+
+        const labels = categories.map(c => c.category_name || 'Uncategorized');
+        const amounts = categories.map(c => Number(c.total_amount || c.total_revenue || 0));
+        const quantities = categories.map(c => Number(c.total_qty || c.total_quantity || 0));
+        const totalSum = amounts.reduce((a, b) => a + b, 0);
+
+        this.charts.insights = new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels,
+            datasets: [{
+              data: amounts,
+              backgroundColor: palette.slice(0, labels.length),
+              borderWidth: 0,
+              hoverOffset: 6
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: 'bottom',
+                labels: {
+                  color: '#94a3b8',
+                  font: { family: 'Inter', size: 11 },
+                  padding: 10,
+                  usePointStyle: true,
+                  pointStyle: 'circle'
+                }
+              },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    const idx = context.dataIndex;
+                    const val = context.raw || 0;
+                    const pct = totalSum > 0 ? ((val / totalSum) * 100).toFixed(1) : 0;
+                    const qty = quantities[idx] || 0;
+                    return ` ₹${val.toLocaleString('en-IN')} (${pct}%) • ${qty} items`;
+                  }
+                }
+              }
+            },
+            cutout: '68%'
+          }
+        });
+      } catch (err) {
+        console.error('Failed to load category insights chart:', err);
       }
-    });
+    } else {
+      // Dining Channels View (Dine In vs Takeaway vs Delivery)
+      if (titleEl) titleEl.textContent = 'Dining Channels';
+      if (subtitleEl) subtitleEl.textContent = 'Dine-In vs Takeaway vs Delivery breakdown';
+
+      const typeMap = {
+        dine_in: { label: '🍽️ Dine In', color: '#3b82f6' },
+        takeaway: { label: '🥡 Takeaway', color: '#f97316' },
+        delivery: { label: '🛵 Delivery', color: '#10b981' }
+      };
+
+      const rawTypes = (this.dashData && this.dashData.orderTypes) ? this.dashData.orderTypes : [];
+
+      if (!rawTypes || rawTypes.length === 0) {
+        if (emptyEl) emptyEl.classList.remove('hidden');
+        return;
+      }
+
+      if (emptyEl) emptyEl.classList.add('hidden');
+
+      const labels = rawTypes.map(t => typeMap[t.order_type]?.label || t.order_type);
+      const amounts = rawTypes.map(t => Number(t.amount || 0));
+      const counts = rawTypes.map(t => Number(t.count || 0));
+      const colors = rawTypes.map(t => typeMap[t.order_type]?.color || '#8b5cf6');
+      const totalSum = amounts.reduce((a, b) => a + b, 0);
+
+      this.charts.insights = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [{
+            data: amounts,
+            backgroundColor: colors,
+            borderWidth: 0,
+            hoverOffset: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              position: 'bottom',
+              labels: {
+                color: '#94a3b8',
+                font: { family: 'Inter', size: 11 },
+                padding: 10,
+                usePointStyle: true,
+                pointStyle: 'circle'
+              }
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const idx = context.dataIndex;
+                  const val = context.raw || 0;
+                  const pct = totalSum > 0 ? ((val / totalSum) * 100).toFixed(1) : 0;
+                  const count = counts[idx] || 0;
+                  return ` ₹${val.toLocaleString('en-IN')} (${pct}%) • ${count} orders`;
+                }
+              }
+            }
+          },
+          cutout: '68%'
+        }
+      });
+    }
   }
 };

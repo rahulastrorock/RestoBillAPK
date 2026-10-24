@@ -154,6 +154,7 @@ window.OrdersUI = {
 
   async fetchOrders() {
     const tbody = document.getElementById('orders-tbody');
+    const cardsList = document.getElementById('orders-cards-list');
     if (tbody) {
       tbody.innerHTML = `
         <tr>
@@ -161,6 +162,14 @@ window.OrdersUI = {
             <div class="loading-overlay"><div class="spinner"></div> Loading orders...</div>
           </td>
         </tr>
+      `;
+    }
+    if (cardsList) {
+      cardsList.innerHTML = `
+        <div class="text-center" style="padding:40px; color:var(--text-muted); background:var(--bg-surface); border-radius:var(--radius-md);">
+          <div class="spinner" style="margin:0 auto 12px auto;"></div>
+          <div>Loading orders...</div>
+        </div>
       `;
     }
 
@@ -195,129 +204,213 @@ window.OrdersUI = {
 
   renderTable() {
     const tbody = document.getElementById('orders-tbody');
-    if (!tbody) return;
+    const cardsList = document.getElementById('orders-cards-list');
+    if (!tbody && !cardsList) return;
 
     if (this.orders.length === 0) {
       const msg = this.filters.phone
         ? `No orders found matching phone "${window.App.escapeHtml(this.filters.phone)}".`
         : 'No orders found for the selected period.';
-      tbody.innerHTML = `
-        <tr>
-          <td colspan="9" class="text-center" style="padding: 40px; color: var(--text-muted);">
-            ${msg}
-          </td>
-        </tr>
-      `;
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="9" class="text-center" style="padding: 40px; color: var(--text-muted);">
+              ${msg}
+            </td>
+          </tr>
+        `;
+      }
+      if (cardsList) {
+        cardsList.innerHTML = `
+          <div class="orders-empty-state" style="padding: 36px 16px; text-align: center; color: var(--text-muted); background: var(--bg-surface); border-radius: var(--radius-md); border: 1px dashed var(--border-color);">
+            <div style="font-size: 28px; margin-bottom: 8px; opacity: 0.7;">🧾</div>
+            <div style="font-size: 14px; font-weight: 600;">${msg}</div>
+          </div>
+        `;
+      }
       return;
     }
 
-    tbody.innerHTML = this.orders.map(order => {
-      const typeIcons = {
-        dine_in: '🍽️ Dine In',
-        takeaway: '🥡 Takeaway',
-        delivery: '🛵 Delivery'
-      };
+    const typeIcons = {
+      dine_in: '🍽️ Dine In',
+      takeaway: '🥡 Takeaway',
+      delivery: '🛵 Delivery'
+    };
 
-      const isVoided = order.status === 'voided';
+    // 1. Generate Desktop Table Rows (for screens > 900px)
+    if (tbody) {
+      tbody.innerHTML = this.orders.map(order => {
+        const isVoided = order.status === 'voided';
+        return `
+          <tr style="${isVoided ? 'opacity:0.6;' : ''}">
+            <td><strong>${order.order_no}</strong></td>
+            <td>${window.App.formatDateTime(order.created_at)}</td>
+            <td><span class="badge badge-manager">${typeIcons[order.order_type] || order.order_type}</span></td>
+            <td>${order.table_no ? `Table ${order.table_no}` : '-'}</td>
+            <td>
+              <div style="font-weight:600; color:var(--text-primary);">${order.customer_name || 'Walk-in'}</div>
+              ${order.customer_phone ? `<div style="font-size:11px; color:var(--accent-primary); font-family:monospace; margin-top:2px;">📞 ${order.customer_phone}</div>` : ''}
+            </td>
+            <td style="font-weight:700; color:${isVoided ? 'var(--text-muted)' : 'var(--accent-primary)'};">${window.App.formatCurrency(order.total)}</td>
+            <td><span class="badge badge-cashier">${(order.payment_mode || 'cash').toUpperCase()}</span></td>
+            <td>
+              <span class="badge ${isVoided ? 'badge-voided' : 'badge-completed'}">
+                ${isVoided ? 'Deleted' : 'Completed'}
+              </span>
+            </td>
+            <td>
+              <div class="action-btns">
+                <button class="action-btn action-view btn-preview-order" data-id="${order.id}" title="Print Preview">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="action-btn action-view btn-view-order" data-id="${order.id}" title="View Details">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="action-btn action-print btn-print-order" data-id="${order.id}" title="Print Receipt">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd"/></svg>
+                </button>
+                <button class="action-btn action-share btn-share-order" data-id="${order.id}" title="Share via WhatsApp or Email" style="color:#22c55e;">
+                  <svg viewBox="0 0 20 20" fill="currentColor"><path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z"/></svg>
+                </button>
+                ${!isVoided ? `
+                  <button class="action-btn action-edit btn-edit-order" data-id="${order.id}" title="Edit Order">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+                  </button>
+                  <button class="action-btn action-delete btn-void-order" data-id="${order.id}" data-no="${order.order_no}" title="Delete Order">
+                    <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                  </button>
+                ` : ''}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
 
-      return `
-        <tr style="${isVoided ? 'opacity:0.6;' : ''}">
-          <td><strong>${order.order_no}</strong></td>
-          <td>${window.App.formatDateTime(order.created_at)}</td>
-          <td><span class="badge badge-manager">${typeIcons[order.order_type] || order.order_type}</span></td>
-          <td>${order.table_no ? `Table ${order.table_no}` : '-'}</td>
-          <td>
-            <div style="font-weight:600; color:var(--text-primary);">${order.customer_name || 'Walk-in'}</div>
-            ${order.customer_phone ? `<div style="font-size:11px; color:var(--accent-primary); font-family:monospace; margin-top:2px;">📞 ${order.customer_phone}</div>` : ''}
-          </td>
-          <td style="font-weight:700; color:${isVoided ? 'var(--text-muted)' : 'var(--accent-primary)'};">${window.App.formatCurrency(order.total)}</td>
-          <td><span class="badge badge-cashier">${(order.payment_mode || 'cash').toUpperCase()}</span></td>
-          <td>
-            <span class="badge ${isVoided ? 'badge-voided' : 'badge-completed'}">
-              ${isVoided ? 'Deleted' : 'Completed'}
-            </span>
-          </td>
-          <td>
-            <div class="action-btns">
-              <button class="action-btn action-view btn-preview-order" data-id="${order.id}" title="Print Preview">
+    // 2. Generate Mobile Smart Cards (for screens <= 900px)
+    if (cardsList) {
+      cardsList.innerHTML = this.orders.map(order => {
+        const isVoided = order.status === 'voided';
+        return `
+          <div class="order-smart-card ${isVoided ? 'order-card-voided' : ''}">
+            <!-- Top row: Order Number, Date/Time & Badges -->
+            <div class="order-card-header">
+              <div class="order-card-header-left">
+                <span class="order-card-id">${order.order_no}</span>
+                <span class="order-card-time">${window.App.formatDateTime(order.created_at)}</span>
+              </div>
+              <div class="order-card-header-right">
+                <span class="badge ${isVoided ? 'badge-voided' : 'badge-completed'}">${isVoided ? 'Deleted' : 'Completed'}</span>
+                <span class="badge badge-manager">${typeIcons[order.order_type] || order.order_type}</span>
+              </div>
+            </div>
+
+            <!-- Middle row: Customer, Table, Payment & Total -->
+            <div class="order-card-body">
+              <div class="order-card-meta">
+                <div class="order-card-customer">
+                  <div class="customer-name">${order.customer_name || 'Walk-in'}</div>
+                  ${order.customer_phone ? `<div class="customer-phone">📞 ${order.customer_phone}</div>` : ''}
+                </div>
+                ${order.table_no ? `<span class="order-card-table">🪑 Table ${order.table_no}</span>` : ''}
+              </div>
+
+              <div class="order-card-financials">
+                <span class="badge badge-cashier">${(order.payment_mode || 'cash').toUpperCase()}</span>
+                <div class="order-card-total ${isVoided ? 'total-voided' : ''}">${window.App.formatCurrency(order.total)}</div>
+              </div>
+            </div>
+
+            <!-- Bottom row: Full action toolbar shifted down inside the card -->
+            <div class="order-card-actions">
+              <button class="order-action-pill btn-preview-order" data-id="${order.id}" title="Print Preview">
                 <svg viewBox="0 0 20 20" fill="currentColor"><path d="M10 12a2 2 0 100-4 2 2 0 000 4z"/><path fill-rule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clip-rule="evenodd"/></svg>
+                <span>Preview</span>
               </button>
-              <button class="action-btn action-view btn-view-order" data-id="${order.id}" title="View Details">
+              <button class="order-action-pill btn-view-order" data-id="${order.id}" title="View Details">
                 <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+                <span>Details</span>
               </button>
-              <button class="action-btn action-print btn-print-order" data-id="${order.id}" title="Print Receipt">
+              <button class="order-action-pill btn-print-order" data-id="${order.id}" title="Print Receipt">
                 <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd"/></svg>
+                <span>Print</span>
               </button>
-              <button class="action-btn action-share btn-share-order" data-id="${order.id}" title="Share via WhatsApp or Email" style="color:#22c55e;">
+              <button class="order-action-pill action-share-pill btn-share-order" data-id="${order.id}" title="Share via WhatsApp">
                 <svg viewBox="0 0 20 20" fill="currentColor"><path d="M15 8a3 3 0 10-2.977-2.63l-4.94 2.47a3 3 0 100 4.319l4.94 2.47a3 3 0 10.895-1.789l-4.94-2.47a3.027 3.027 0 000-.74l4.94-2.47C13.456 7.68 14.19 8 15 8z"/></svg>
+                <span>Share</span>
               </button>
               ${!isVoided ? `
-                <button class="action-btn action-edit btn-edit-order" data-id="${order.id}" title="Edit Order">
+                <button class="order-action-pill btn-edit-order" data-id="${order.id}" title="Edit Order">
                   <svg viewBox="0 0 20 20" fill="currentColor"><path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z"/></svg>
+                  <span>Edit</span>
                 </button>
-                <button class="action-btn action-delete btn-void-order" data-id="${order.id}" data-no="${order.order_no}" title="Delete Order">
+                <button class="order-action-pill action-delete-pill btn-void-order" data-id="${order.id}" data-no="${order.order_no}" title="Delete Order">
                   <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+                  <span>Delete</span>
                 </button>
               ` : ''}
             </div>
-          </td>
-        </tr>
-      `;
-    }).join('');
+          </div>
+        `;
+      }).join('');
+    }
 
-    // Attach row button events
-    tbody.querySelectorAll('.btn-preview-order').forEach(btn => {
-      btn.onclick = async () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        await this.previewOrder(id);
-      };
-    });
+    // 3. Attach action button events across page-orders (handles both desktop table and mobile cards)
+    const pageOrders = document.getElementById('page-orders');
+    if (pageOrders) {
+      pageOrders.querySelectorAll('.btn-preview-order').forEach(btn => {
+        btn.onclick = async () => {
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          await this.previewOrder(id);
+        };
+      });
 
-    tbody.querySelectorAll('.btn-view-order').forEach(btn => {
-      btn.onclick = () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        this.openOrderDetail(id);
-      };
-    });
+      pageOrders.querySelectorAll('.btn-view-order').forEach(btn => {
+        btn.onclick = () => {
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          this.openOrderDetail(id);
+        };
+      });
 
-    tbody.querySelectorAll('.btn-print-order').forEach(btn => {
-      btn.onclick = async () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        await this.printOrderReceipt(id);
-      };
-    });
+      pageOrders.querySelectorAll('.btn-print-order').forEach(btn => {
+        btn.onclick = async () => {
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          await this.printOrderReceipt(id);
+        };
+      });
 
-    tbody.querySelectorAll('.btn-share-order').forEach(btn => {
-      btn.onclick = async () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        const res = await window.api.orders.getById(id);
-        if (res.success && res.data) {
-          window.App.openShareBillModal(res.data);
-        } else {
-          window.App.showToast('Failed to load order for sharing', 'error');
-        }
-      };
-    });
+      pageOrders.querySelectorAll('.btn-share-order').forEach(btn => {
+        btn.onclick = async () => {
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          const res = await window.api.orders.getById(id);
+          if (res.success && res.data) {
+            window.App.openShareBillModal(res.data);
+          } else {
+            window.App.showToast('Failed to load order for sharing', 'error');
+          }
+        };
+      });
 
-    tbody.querySelectorAll('.btn-edit-order').forEach(btn => {
-      btn.onclick = async () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        const res = await window.api.orders.getById(id);
-        if (res.success && res.data) {
-          window.POS.startEditingOrder(res.data);
-        } else {
-          this.openEditOrderModal(id);
-        }
-      };
-    });
+      pageOrders.querySelectorAll('.btn-edit-order').forEach(btn => {
+        btn.onclick = async () => {
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          const res = await window.api.orders.getById(id);
+          if (res.success && res.data) {
+            window.POS.startEditingOrder(res.data);
+          } else {
+            this.openEditOrderModal(id);
+          }
+        };
+      });
 
-    tbody.querySelectorAll('.btn-void-order').forEach(btn => {
-      btn.onclick = () => {
-        const id = parseInt(btn.getAttribute('data-id'), 10);
-        const orderNo = btn.getAttribute('data-no');
-        this.promptDeleteOrder(id, orderNo);
-      };
-    });
+      pageOrders.querySelectorAll('.btn-void-order').forEach(btn => {
+        btn.onclick = () => {
+          const id = parseInt(btn.getAttribute('data-id'), 10);
+          const orderNo = btn.getAttribute('data-no');
+          this.promptDeleteOrder(id, orderNo);
+        };
+      });
+    }
   },
 
   renderPagination(totalCount) {
