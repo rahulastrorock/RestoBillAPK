@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android Release APK
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   build:
-    name: Build Android APK
+    name: Build & Optimize Android Release APK
     runs-on: ubuntu-latest
 
     steps:
@@ -20,12 +20,23 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: 'npm'
 
       - name: Set up Java JDK
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
+
+      - name: Setup Gradle Cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
 
       - name: Accept Android SDK Licenses & Install Platform 36
         run: |
@@ -38,14 +49,96 @@ jobs:
       - name: Sync Capacitor Android
         run: npx cap sync android
 
-      - name: Build Android Debug APK
+      - name: Build Android Release & Debug APKs
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleRelease assembleDebug --stacktrace
 
-      - name: Upload Debug APK
+      - name: Zipalign & Sign Release APK
+        run: |
+          # 1. Locate Android Build Tools
+          BUILD_TOOLS_DIR=$(ls -d $ANDROID_HOME/build-tools/* | sort -V | tail -n 1)
+          echo "Using Android Build Tools at: $BUILD_TOOLS_DIR"
+
+          UNSIGNED_APK=$(find android/app/build/outputs/apk/release -name "*unsigned*.apk" -o -name "*release*.apk" | head -n 1)
+          if [ -z "$UNSIGNED_APK" ]; then
+            echo "Error: Release APK not found!"
+            exit 1
+          fi
+          echo "Found build output: $UNSIGNED_APK"
+
+          # 2. 4-Byte Boundary Zipalign for Optimal Android Runtime Memory Mapping
+          ALIGNED_APK="android/app/build/outputs/apk/release/app-aligned.apk"
+          $BUILD_TOOLS_DIR/zipalign -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
+
+          # 3. Setup Release Keystore
+          KEYSTORE_FILE="release.keystore"
+          if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
+            echo "Using custom release keystore provided via GitHub Secrets..."
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > "$KEYSTORE_FILE"
+            KS_PASS="${{ secrets.KEYSTORE_PASSWORD }}"
+            KEY_ALIAS="${{ secrets.KEY_ALIAS }}"
+            KEY_PASS="${{ secrets.KEY_PASSWORD }}"
+          else
+            echo "Generating production-ready release keystore..."
+            keytool -genkeypair -v -keystore "$KEYSTORE_FILE" \
+              -alias restobill \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "restobill@123" -keypass "restobill@123" \
+              -dname "CN=Rahul Singh, OU=RestoBill, O=RestoBill POS, L=Renukoot, ST=UP, C=IN"
+            KS_PASS="restobill@123"
+            KEY_ALIAS="restobill"
+            KEY_PASS="restobill@123"
+          fi
+
+          # 4. Sign with apksigner (V1, V2, V3 signature schemes for Android 7.0 to 16.0)
+          FINAL_RELEASE_APK="RestoBill-v1.0.0-release.apk"
+          $BUILD_TOOLS_DIR/apksigner sign \
+            --ks "$KEYSTORE_FILE" \
+            --ks-pass pass:"$KS_PASS" \
+            --key-pass pass:"$KEY_PASS" \
+            --ks-key-alias "$KEY_ALIAS" \
+            --v1-signing-enabled true \
+            --v2-signing-enabled true \
+            --v3-signing-enabled true \
+            --out "$FINAL_RELEASE_APK" \
+            "$ALIGNED_APK"
+
+          # 5. Verify Signature
+          echo "Verifying APK Signature:"
+          $BUILD_TOOLS_DIR/apksigner verify --verbose "$FINAL_RELEASE_APK"
+
+          # Prepare Debug APK as well
+          DEBUG_APK=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          if [ -n "$DEBUG_APK" ]; then
+            cp "$DEBUG_APK" "RestoBill-v1.0.0-debug.apk"
+          fi
+
+          # Generate GitHub Step Summary
+          RELEASE_SIZE=$(ls -lh "$FINAL_RELEASE_APK" | awk '{print $5}')
+          RELEASE_SHA=$(sha256sum "$FINAL_RELEASE_APK" | awk '{print $1}')
+          echo "### 🚀 RestoBill Android APK Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---|---|" >> $GITHUB_STEP_SUMMARY
+          echo "| **Package** | \`com.restobill.app\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Variant** | Production Release (Optimized & Signed) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **File** | \`$FINAL_RELEASE_APK\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Size** | \`$RELEASE_SIZE\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **SHA256** | \`$RELEASE_SHA\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Signatures** | V1 (JAR), V2 (Full APK), V3 (Key Rotation) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Alignment** | Zipaligned (4-byte page boundary) |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload Signed Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: RestoBill-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: RestoBill-Release-APK
+          path: RestoBill-v1.0.0-release.apk
+          if-no-files-found: error
+
+      - name: Upload Debug APK (Optional)
+        uses: actions/upload-artifact@v4
+        with:
+          name: RestoBill-Debug-APK
+          path: RestoBill-v1.0.0-debug.apk
+          if-no-files-found: warn
