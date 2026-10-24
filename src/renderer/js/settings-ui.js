@@ -467,8 +467,8 @@ window.SettingsUI = {
                   <div class="form-group">
                     <label>Print Execution Mode</label>
                     <select name="silent_print">
-                      <option value="1" ${s.silent_print !== '0' ? 'selected' : ''}>Direct Silent Print (No Dialog, Instant)</option>
-                      <option value="0" ${s.silent_print === '0' ? 'selected' : ''}>Show Windows Print Dialog Each Time</option>
+                      <option value="1" ${s.silent_print !== '0' ? 'selected' : ''}>Direct Silent Print (Instant)</option>
+                      <option value="0" ${s.silent_print === '0' ? 'selected' : ''}>Show Windows Print Dialog</option>
                     </select>
                   </div>
                 </div>
@@ -478,14 +478,14 @@ window.SettingsUI = {
                     <label>Number of Copies</label>
                     <select name="print_copies">
                       <option value="1" ${s.print_copies !== '2' ? 'selected' : ''}>1 Copy (Customer Bill)</option>
-                      <option value="2" ${s.print_copies === '2' ? 'selected' : ''}>2 Copies (Customer + Merchant/Kitchen)</option>
+                      <option value="2" ${s.print_copies === '2' ? 'selected' : ''}>2 Copies (Customer + Kitchen)</option>
                     </select>
                   </div>
                   <div class="form-group">
                     <label>POS Auto-Print on Settle</label>
                     <select name="auto_print_on_save">
-                      <option value="0" ${s.auto_print_on_save !== '1' ? 'selected' : ''}>Manual Print (Only when F4 Save & Print clicked)</option>
-                      <option value="1" ${s.auto_print_on_save === '1' ? 'selected' : ''}>Auto-Print (Print whenever order is saved / settled)</option>
+                      <option value="0" ${s.auto_print_on_save !== '1' ? 'selected' : ''}>Manual (F4 / Save & Print)</option>
+                      <option value="1" ${s.auto_print_on_save === '1' ? 'selected' : ''}>Auto-Print on Settle</option>
                     </select>
                   </div>
                 </div>
@@ -1000,51 +1000,51 @@ window.SettingsUI = {
     container.innerHTML = `
       <div class="settings-section">
         <!-- 💾 Local SQLite Database (.db File) Backup & Restore Card -->
-        <div style="background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);padding:20px;margin-bottom:24px;">
-          <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px;">
-            <div style="flex:1;min-width:260px;">
-              <h4 style="font-size:15px;font-weight:700;margin:0 0 6px 0;display:flex;align-items:center;gap:8px;color:var(--text-primary);">
-                <span>💾</span> Local SQLite Database (.db File) Backup & Restore
+        <div style="background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);padding:16px;margin-bottom:20px;width:100%;box-sizing:border-box;">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:14px;width:100%;box-sizing:border-box;">
+            <div style="flex:1 1 220px;min-width:0;">
+              <h4 style="font-size:15px;font-weight:700;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;color:var(--text-primary);">
+                <span>💾</span> Local SQLite Database (.db File)
               </h4>
-              <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.5;">
-                Download your complete database file (.db) to your device anytime, or upload an existing .db file to instantly restore and populate all orders, menu items, categories, customers, and settings.
+              <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.4;">
+                Download your complete database file (.db) to your device, or upload an existing .db file to instantly restore all data.
               </p>
             </div>
-            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-              <button type="button" class="btn btn-outline btn-sm" id="btn-download-db" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
-                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 011.414 0zM11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
-                📥 Download Database (.db)
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;width:100%;max-width:100%;">
+              <button type="button" class="btn btn-outline btn-sm" id="btn-download-db" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;flex:1 1 auto;min-width:0;padding:8px 10px;font-size:12px;">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 011.414 0zM11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
+                <span>📥 Download DB</span>
               </button>
               <input type="file" id="input-upload-db" accept=".db,application/x-sqlite3,application/octet-stream" style="display:none;">
-              <button type="button" class="btn btn-primary btn-sm" id="btn-upload-db" style="display:inline-flex;align-items:center;gap:6px;font-weight:600;">
-                <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 01-1.414 1.414L11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
-                📤 Upload & Restore Database (.db)
+              <button type="button" class="btn btn-primary btn-sm" id="btn-upload-db" style="display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;flex:1 1 auto;min-width:0;padding:8px 10px;font-size:12px;">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM6.293 6.707a1 1 0 010-1.414l3-3a1 1 0 011.414 0l3 3a1 1 0 011.414 0zM11 5.414V13a1 1 0 11-2 0V5.414L7.707 6.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/></svg>
+                <span>📤 Upload &amp; Restore</span>
               </button>
             </div>
           </div>
         </div>
 
-        <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">Google Drive Cloud Backup</h3>
-        <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">
+        <h3 style="font-size:17px;font-weight:700;margin-bottom:4px;">Google Drive Cloud Backup</h3>
+        <p style="color:var(--text-muted);font-size:12px;margin-bottom:16px;">
           Automatically or manually backup your restaurant database (menu, orders, customers) to Google Drive.
         </p>
 
-        <div id="backup-status-container" style="padding:16px;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);margin-bottom:20px;">
+        <div id="backup-status-container" style="padding:14px;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);margin-bottom:18px;width:100%;box-sizing:border-box;">
           <div class="loading-overlay"><div class="spinner"></div> Checking Google Drive connection...</div>
         </div>
 
         <!-- Automatic Backup Schedule Card -->
-        <div style="background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);padding:20px;margin-bottom:24px;">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
+        <div style="background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);padding:16px;margin-bottom:20px;width:100%;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
             <div>
-              <h4 style="font-size:15px;font-weight:700;margin:0 0 4px 0;display:flex;align-items:center;gap:8px;">
+              <h4 style="font-size:15px;font-weight:700;margin:0 0 2px 0;display:flex;align-items:center;gap:8px;">
                 <span>⏰</span> Automatic Backup Schedule
               </h4>
               <p style="font-size:12px;color:var(--text-muted);margin:0;">
                 Keep your restaurant data safe without manual effort. Runs in the background and uploads snapshots to Google Drive.
               </p>
             </div>
-            <span style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:12px;font-size:11px;font-weight:600;background:${s.backup_enabled === '1' ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)'};color:${s.backup_enabled === '1' ? 'var(--color-success)' : 'var(--text-muted)'};border:1px solid ${s.backup_enabled === '1' ? 'rgba(34,197,94,0.3)' : 'var(--border-color)'};">
+            <span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600;background:${s.backup_enabled === '1' ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)'};color:${s.backup_enabled === '1' ? 'var(--color-success)' : 'var(--text-muted)'};border:1px solid ${s.backup_enabled === '1' ? 'rgba(34,197,94,0.3)' : 'var(--border-color)'};">
               ${s.backup_enabled === '1' ? '● Auto-Backup Active' : '○ Auto-Backup Disabled'}
             </span>
           </div>
@@ -1055,7 +1055,7 @@ window.SettingsUI = {
                 <label>Auto-Backup Status</label>
                 <select name="backup_enabled" id="select-backup-enabled">
                   <option value="1" ${s.backup_enabled === '1' ? 'selected' : ''}>✅ Enabled (Automated Cloud Sync)</option>
-                  <option value="0" ${s.backup_enabled !== '1' ? 'selected' : ''}>⛔ Disabled (Manual Backup Only)</option>
+                  <option value="0" ${s.backup_enabled !== '1' ? 'selected' : ''}>⛔ Disabled (Manual Only)</option>
                 </select>
               </div>
 
@@ -1063,7 +1063,7 @@ window.SettingsUI = {
                 <label>Backup Frequency</label>
                 <select name="backup_frequency" id="select-backup-frequency">
                   <option value="daily" ${s.backup_frequency === 'daily' || !s.backup_frequency ? 'selected' : ''}>Daily (Recommended at End of Day)</option>
-                  <option value="every_4_hours" ${s.backup_frequency === 'every_4_hours' ? 'selected' : ''}>Every 4 Hours (Best for busy restaurants)</option>
+                  <option value="every_4_hours" ${s.backup_frequency === 'every_4_hours' ? 'selected' : ''}>Every 4 Hours (Best for busy places)</option>
                   <option value="every_12_hours" ${s.backup_frequency === 'every_12_hours' ? 'selected' : ''}>Every 12 Hours (Twice daily)</option>
                 </select>
               </div>
@@ -1073,25 +1073,25 @@ window.SettingsUI = {
               <div class="form-group" id="group-backup-time">
                 <label>Daily Auto-Backup Time</label>
                 <input type="time" name="backup_time" value="${s.backup_time || '23:00'}">
-                <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:4px;">
-                  Suggested: 11:00 PM (23:00) or when closing your cash register.
+                <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:3px;">
+                  Suggested: 11:00 PM (23:00) or when closing register.
                 </span>
               </div>
 
               <div class="form-group">
                 <label>Backup on Application Exit</label>
                 <select name="backup_on_exit">
-                  <option value="1" ${s.backup_on_exit !== '0' ? 'selected' : ''}>Yes, backup when RestoBill is closed (Recommended)</option>
+                  <option value="1" ${s.backup_on_exit !== '0' ? 'selected' : ''}>Yes, backup on exit (Recommended)</option>
                   <option value="0" ${s.backup_on_exit === '0' ? 'selected' : ''}>No, skip backup on close</option>
                 </select>
-                <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:4px;">
-                  Automatically saves a fresh snapshot when shutting down RestoBill at night.
+                <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:3px;">
+                  Automatically saves a fresh snapshot when closing app at night.
                 </span>
               </div>
             </div>
 
-            <div style="display:flex;justify-content:flex-end;margin-top:16px;">
-              <button type="submit" class="btn btn-primary btn-sm">💾 Save Backup Schedule</button>
+            <div style="display:flex;justify-content:flex-end;margin-top:14px;">
+              <button type="submit" class="btn btn-primary btn-sm" style="min-width:180px;">💾 Save Backup Schedule</button>
             </div>
           </form>
         </div>
@@ -1409,22 +1409,22 @@ window.SettingsUI = {
       const backups = (res?.success && Array.isArray(res?.data)) ? res.data : (Array.isArray(res) ? res : []);
       if (backups && backups.length > 0) {
         listContainer.innerHTML = backups.map(b => `
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border-color);border-radius:var(--radius-sm);margin-bottom:8px;">
-            <div style="display:flex;align-items:center;gap:12px;">
-              <span style="font-size:22px;">📁</span>
-              <div>
-                <div style="font-weight:600;color:var(--text-primary);display:flex;align-items:center;gap:8px;">
-                  <span>${b.name}</span>
-                  <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(34,197,94,0.15);color:var(--color-success);font-weight:700;">${b.uploadedToDrive ? 'GOOGLE DRIVE' : 'LOCAL'}</span>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border-color);border-radius:var(--radius-sm);margin-bottom:8px;width:100%;box-sizing:border-box;">
+            <div style="display:flex;align-items:center;gap:10px;flex:1 1 200px;min-width:0;">
+              <span style="font-size:20px;flex-shrink:0;">📁</span>
+              <div style="min-width:0;flex:1;">
+                <div style="font-weight:600;color:var(--text-primary);display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
+                  <span style="word-break:break-all;overflow-wrap:anywhere;font-size:13px;">${b.name}</span>
+                  <span style="font-size:9px;padding:2px 5px;border-radius:4px;background:rgba(34,197,94,0.15);color:var(--color-success);font-weight:700;flex-shrink:0;">${b.uploadedToDrive ? 'GOOGLE DRIVE' : 'LOCAL'}</span>
                 </div>
                 <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
                   ${window.App.formatDateTime(b.createdAt || b.createdTime || b.created_at)} &bull; Size: ${b.sizeFormatted || ''}
                 </div>
               </div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px;">
-              ${b.driveUrl ? `<a href="${b.driveUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="font-size:11px;text-decoration:none;">View in Drive ↗</a>` : ''}
-              <button class="btn btn-outline btn-sm btn-restore-backup" data-id="${b.id}" style="color:var(--color-primary);border-color:var(--color-primary);">
+            <div style="display:flex;align-items:center;gap:6px;flex-shrink:0;flex-wrap:wrap;">
+              ${b.driveUrl ? `<a href="${b.driveUrl}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm" style="font-size:11px;text-decoration:none;padding:5px 9px;">View in Drive ↗</a>` : ''}
+              <button class="btn btn-outline btn-sm btn-restore-backup" data-id="${b.id}" style="color:var(--color-primary);border-color:var(--color-primary);font-size:11px;padding:5px 12px;">
                 Restore
               </button>
             </div>
@@ -1673,40 +1673,131 @@ window.SettingsUI = {
 
     try {
       const verRes = await window.api.app.getVersion();
-      if (verRes.success) version = verRes.data;
+      if (verRes?.success) version = verRes.data;
 
       const pathRes = await window.api.app.getDbPath();
-      if (pathRes.success) dbPath = pathRes.data;
+      if (pathRes?.success) dbPath = pathRes.data;
     } catch (e) {}
 
     container.innerHTML = `
-      <div class="settings-section">
-        <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">About RestoBill</h3>
-        <p style="color:var(--text-muted);font-size:13px;margin-bottom:24px;">
-          Modern, GST-Compliant Restaurant POS & Billing Software designed for Indian restaurants, cafes, and cloud kitchens.
-        </p>
-
-        <div style="background:var(--bg-elevated);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:20px;margin-bottom:24px;">
-          <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;">
-            <div style="width:50px;height:50px;border-radius:12px;background:linear-gradient(135deg, #f97316, #ef4444);display:flex;align-items:center;justify-content:center;color:white;font-weight:800;font-size:22px;">
-              RB
+      <div class="settings-section about-page-wrapper">
+        <!-- 1. RestoBill Brand Hero Card -->
+        <div class="about-hero-card">
+          <div class="about-hero-header">
+            <div class="about-logo-badge">
+              <span class="about-logo-letters">RB</span>
             </div>
-            <div>
-              <h4 style="font-size:18px;font-weight:800;color:var(--text-primary);">RestoBill Desktop</h4>
-              <p style="font-size:12px;color:var(--text-muted);">Version ${version} (Electron & SQLite)</p>
+            <div class="about-hero-info">
+              <div class="about-title-row">
+                <h3 class="about-app-name">RestoBill POS</h3>
+                <span class="about-version-badge">v${version}</span>
+              </div>
+              <p class="about-app-tagline">Modern, GST-Compliant Restaurant POS & Billing Solution</p>
             </div>
           </div>
 
-          <div style="font-size:13px;color:var(--text-secondary);line-height:1.8;">
-            <div><strong>Database:</strong> <code>${dbPath}</code></div>
-            <div><strong>Engine:</strong> Electron + better-sqlite3 (High Performance)</div>
-            <div><strong>Compliance:</strong> GST Act, GSTR-1 Tax Invoices, HSN/SAC Mapping</div>
-            <div><strong>Printing:</strong> 80mm & 58mm Thermal Printers, A4 Tax Invoices</div>
+          <p class="about-hero-description">
+            High-performance, offline-first billing system engineered for Indian restaurants, cafes, cloud kitchens, bakeries, and food trucks. Features 100% offline data autonomy, zero cloud lock-in, lightning-fast thermal printing, and optional Google Drive synchronization.
+          </p>
+
+          <div class="about-pill-tags">
+            <span class="about-pill">⚡ 100% Offline-First</span>
+            <span class="about-pill">🧾 GST &amp; GSTR-1 Ready</span>
+            <span class="about-pill">🖨️ 80mm &amp; 58mm Thermal</span>
+            <span class="about-pill">☁️ Auto Cloud Backup</span>
           </div>
         </div>
 
-        <div style="color:var(--text-muted);font-size:12px;line-height:1.6;">
-          <p>RestoBill runs 100% offline with zero cloud subscription fees. Data is stored locally on your device with optional Google Drive backup.</p>
+        <!-- 2. Developer & Creator Showcase Card -->
+        <div class="about-developer-card">
+          <div class="about-dev-header">
+            <div class="about-dev-avatar">
+              <span>RS</span>
+            </div>
+            <div class="about-dev-intro">
+              <div class="about-dev-name-row">
+                <h4 class="about-dev-name">Rahul Singh</h4>
+                <span class="about-dev-badge">Author &amp; Architect</span>
+              </div>
+              <p class="about-dev-role">Lead Software Engineer &amp; System Architect</p>
+            </div>
+          </div>
+
+          <p class="about-dev-summary">
+            Designed and developed RestoBill's core architecture, local SQLite database storage engine, high-speed ESC/POS receipt generation, responsive mobile UI, and automated Google Drive cloud backup sync.
+          </p>
+
+          <div class="about-contact-grid">
+            <!-- Phone -->
+            <div class="about-contact-box">
+              <div class="about-contact-lead">
+                <span class="about-icon-circle">📞</span>
+                <div class="about-contact-labels">
+                  <span class="about-meta-label">Phone</span>
+                  <a href="tel:+919450161899" class="about-primary-text">+91 9450161899</a>
+                </div>
+              </div>
+              <div class="about-actions-pair">
+                <a href="tel:+919450161899" class="btn btn-outline btn-xs">Call</a>
+                <a href="https://wa.me/919450161899" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-xs btn-wa-chat">WhatsApp</a>
+              </div>
+            </div>
+
+            <!-- Email -->
+            <div class="about-contact-box">
+              <div class="about-contact-lead">
+                <span class="about-icon-circle">✉️</span>
+                <div class="about-contact-labels">
+                  <span class="about-meta-label">Email ID</span>
+                  <a href="mailto:100rahulsingh100@gmail.com" class="about-primary-text">100rahulsingh100@gmail.com</a>
+                </div>
+              </div>
+              <div class="about-actions-pair">
+                <a href="mailto:100rahulsingh100@gmail.com" class="btn btn-outline btn-xs">Send Email</a>
+              </div>
+            </div>
+
+            <!-- LinkedIn (Strictly Hypertext) -->
+            <div class="about-contact-box about-contact-linkedin">
+              <div class="about-contact-lead">
+                <span class="about-icon-circle" style="background:rgba(10,102,194,0.18);color:#0a66c2;">💼</span>
+                <div class="about-contact-labels">
+                  <span class="about-meta-label">LinkedIn</span>
+                  <a href="https://www.linkedin.com/in/astrorock" target="_blank" rel="noopener noreferrer" class="about-linkedin-hyperlink">
+                    <span>Connect with Rahul Singh on LinkedIn</span>
+                    <svg viewBox="0 0 20 20" fill="currentColor" width="13" height="13"><path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z"/><path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z"/></svg>
+                  </a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. System & Runtime Specifications -->
+        <div class="about-specs-container">
+          <h4 class="about-specs-heading">System &amp; Technology Specs</h4>
+          <div class="about-specs-grid">
+            <div class="about-spec-tile">
+              <span class="about-spec-title">Data Storage</span>
+              <span class="about-spec-detail">${dbPath}</span>
+            </div>
+            <div class="about-spec-tile">
+              <span class="about-spec-title">Platform Runtime</span>
+              <span class="about-spec-detail">Capacitor Native (Android APK) / Electron (Desktop)</span>
+            </div>
+            <div class="about-spec-tile">
+              <span class="about-spec-title">Tax Compliance</span>
+              <span class="about-spec-detail">GST Act, GSTR-1 Tax Invoices, B2B/B2C, HSN/SAC</span>
+            </div>
+            <div class="about-spec-tile">
+              <span class="about-spec-title">Printing Engine</span>
+              <span class="about-spec-detail">80mm &amp; 58mm Thermal ESC/POS &amp; Standard A4 Laser</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="about-footer-bar">
+          <span>RestoBill POS &bull; Developed by Rahul Singh &bull; All Rights Reserved</span>
         </div>
       </div>
     `;

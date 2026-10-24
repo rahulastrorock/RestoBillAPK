@@ -1148,9 +1148,17 @@ window.App = {
     previewOverlay.innerHTML = `
       <div class="modal modal-preview" id="preview-modal">
         <div class="preview-modal-bar">
-          <div class="preview-title-box">
-            <h3>Print Preview: ${orderNo}</h3>
-            <p>${orderData.customer_name ? `Customer: ${this.escapeHtml(orderData.customer_name)} • ` : ''}${totalFormatted} • ${(orderData.payment_mode || 'cash').toUpperCase()}</p>
+          <div class="preview-header-top">
+            <div class="preview-title-box">
+              <h3>Print Preview: ${orderNo}</h3>
+              <p>${orderData.customer_name ? `Customer: ${this.escapeHtml(orderData.customer_name)} • ` : ''}${totalFormatted} • ${(orderData.payment_mode || 'cash').toUpperCase()}</p>
+            </div>
+            <button type="button" class="btn-icon preview-close-top-btn" id="btn-preview-top-close" title="Close Preview">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
           </div>
 
           <div class="preview-segmented-toggle">
@@ -1163,24 +1171,21 @@ window.App = {
           </div>
 
           <div class="preview-toolbar-actions">
-            <button type="button" class="btn btn-primary btn-sm" id="btn-preview-print">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd"/></svg>
-              Print Now
+            <button type="button" class="btn btn-primary btn-sm preview-btn" id="btn-preview-print">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M5 4v3H4a2 2 0 00-2 2v3a2 2 0 002 2h1v2a2 2 0 002 2h6a2 2 0 002-2v-2h1a2 2 0 002-2V9a2 2 0 00-2-2h-1V4a2 2 0 00-2-2H7a2 2 0 00-2 2zm8 0H7v3h6V4zm0 8H7v4h6v-4z" clip-rule="evenodd"/></svg>
+              <span>Print Now</span>
             </button>
-            <button type="button" class="btn btn-outline btn-sm" id="btn-preview-pdf">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-              Save PDF
+            <button type="button" class="btn btn-outline btn-sm preview-btn" id="btn-preview-pdf">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+              <span>Save PDF</span>
             </button>
-            <button type="button" class="btn btn-outline btn-sm" id="btn-preview-whatsapp" style="border-color:#22c55e;color:#22c55e;" title="Share bill directly on WhatsApp">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="15" height="15"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z"/></svg>
-              WhatsApp
+            <button type="button" class="btn btn-outline btn-sm preview-btn btn-preview-wa" id="btn-preview-whatsapp" style="border-color:#22c55e;color:#22c55e;" title="Share bill directly on WhatsApp">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z"/></svg>
+              <span>WhatsApp</span>
             </button>
-            <button type="button" class="btn btn-outline btn-sm" id="btn-preview-email" style="border-color:#3b82f6;color:#60a5fa;" title="Share bill via Email">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="15" height="15"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/></svg>
-              Email
-            </button>
-            <button type="button" class="btn-icon" id="btn-preview-close" title="Close Preview">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+            <button type="button" class="btn btn-outline btn-sm preview-btn btn-preview-mail" id="btn-preview-email" style="border-color:#3b82f6;color:#60a5fa;" title="Share bill via Email">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/></svg>
+              <span>Email</span>
             </button>
           </div>
         </div>
@@ -1303,6 +1308,8 @@ window.App = {
       previewOverlay.classList.add('hidden');
     };
 
+    const btnTopClose = document.getElementById('btn-preview-top-close');
+    if (btnTopClose) btnTopClose.onclick = closePreview;
     if (btnClose) btnClose.onclick = closePreview;
     previewOverlay.onclick = (e) => {
       if (e.target === previewOverlay) closePreview();
