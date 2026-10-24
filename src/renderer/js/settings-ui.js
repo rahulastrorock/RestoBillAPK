@@ -1125,11 +1125,17 @@ window.SettingsUI = {
       e.preventDefault();
       const formData = new FormData(e.target);
       const data = Object.fromEntries(formData.entries());
-      await this.saveBulk(data);
+      await this.saveBulk(data, 'Automatic backup schedule saved successfully!');
       if (window.api.gdrive.updateSchedule) {
-        await window.api.gdrive.updateSchedule();
+        await window.api.gdrive.updateSchedule(data);
       }
-      window.App.showToast('Automatic backup schedule saved successfully!', 'success');
+      // Re-fetch all settings to ensure local state is completely synchronized
+      const fresh = await window.api.settings.getAll();
+      const sMap = fresh?.data || fresh;
+      if (sMap) {
+        this.settings = sMap;
+        window.App.settings = sMap;
+      }
       this.render();
     });
 
@@ -1372,7 +1378,7 @@ window.SettingsUI = {
         window.App.showToast('Creating database backup to Google Drive...', 'info');
         const res = await window.api.gdrive.backup();
         const data = res?.data || res || {};
-        const isUploaded = Boolean(data.uploadedToDrive || res.uploadedToDrive);
+        const isUploaded = Boolean(data.uploadedToDrive || res.uploadedToDrive || (res.success && data.backup));
         if (isUploaded) {
           const name = data.backup?.name || res.backup?.name || 'database backup';
           window.App.showToast(`✅ Database uploaded to Google Drive ("RestoBill_Backups") as ${name}!`, 'success', 6000);
@@ -1706,18 +1712,21 @@ window.SettingsUI = {
     `;
   },
 
-  async saveBulk(settingsObj) {
+  async saveBulk(settingsObj, customToast = 'Settings saved successfully!') {
     try {
       if (settingsObj.theme) {
         window.App.setTheme(settingsObj.theme, false);
       }
       const res = await window.api.settings.updateBulk(settingsObj);
-      if (res.success && res.data) {
-        this.settings = res.data;
-        window.App.settings = res.data;
-        window.App.showToast('Settings saved successfully!', 'success');
+      const data = (res && res.data && res.data.data) ? res.data.data : (res?.data || res);
+      if (res.success && data) {
+        this.settings = data;
+        window.App.settings = data;
+        if (customToast) {
+          window.App.showToast(customToast, 'success');
+        }
       } else {
-        window.App.showToast(res.error || 'Failed to save settings', 'error');
+        window.App.showToast(res?.error || 'Failed to save settings', 'error');
       }
     } catch (err) {
       window.App.showToast(err.message, 'error');

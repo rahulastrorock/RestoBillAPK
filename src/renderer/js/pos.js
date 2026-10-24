@@ -547,10 +547,13 @@ window.POS = {
     if (existingIndex > -1) {
       this.cart[existingIndex].quantity += 1;
     } else {
+      const itemPrice = parseFloat(item.price);
       this.cart.push({
         menu_item_id: item.id,
         name: item.name,
-        price: parseFloat(item.price),
+        original_price: itemPrice,
+        price: itemPrice,
+        is_custom_price: false,
         gst_rate: parseFloat(item.gst_rate || 5),
         is_veg: item.is_veg,
         quantity: 1,
@@ -619,8 +622,14 @@ window.POS = {
         <div class="order-item" data-index="${index}">
           <div class="order-item-info">
             <div class="order-item-name">${item.name}</div>
-            <div class="order-item-price">${window.App.formatCurrency(item.price)} each</div>
-            ${item.notes ? `<div style="font-size:11px;color:var(--accent-primary);">${item.notes}</div>` : ''}
+            <div class="order-item-price" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:2px;">
+              <span style="font-size:12px;color:var(--text-secondary);">${window.App.formatCurrency(item.price)} each</span>
+              <button type="button" class="btn-edit-item-price" data-index="${index}" title="Edit price for this bill only" style="background:rgba(249,115,22,0.15);border:1px solid rgba(249,115,22,0.4);color:#f97316;border-radius:4px;padding:1px 6px;font-size:11px;cursor:pointer;display:inline-flex;align-items:center;gap:3px;font-weight:600;">
+                ✏️ Edit Price
+              </button>
+              ${item.is_custom_price ? `<span style="font-size:10px;background:rgba(34,197,94,0.15);color:var(--color-success);border:1px solid rgba(34,197,94,0.3);border-radius:3px;padding:1px 5px;font-weight:600;">Custom Price</span>` : ''}
+            </div>
+            ${item.notes ? `<div style="font-size:11px;color:var(--accent-primary);margin-top:2px;">${item.notes}</div>` : ''}
           </div>
           <div class="order-item-qty">
             <button class="qty-btn btn-qty-minus" data-index="${index}">&minus;</button>
@@ -658,12 +667,20 @@ window.POS = {
       });
     });
 
-    // Optional click on item to edit notes
+    // Edit price button or clicking on item info opens price & instruction editor
+    listEl.querySelectorAll('.btn-edit-item-price').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.getAttribute('data-index'), 10);
+        this.openEditItemPriceModal(idx);
+      });
+    });
+
     listEl.querySelectorAll('.order-item-info').forEach(info => {
       info.addEventListener('click', () => {
         const itemRow = info.closest('.order-item');
         const idx = parseInt(itemRow.getAttribute('data-index'), 10);
-        this.openItemNotesModal(idx);
+        this.openEditItemPriceModal(idx);
       });
     });
 
@@ -755,6 +772,103 @@ window.POS = {
         floatingBar.classList.add('hidden');
       }
     }
+  },
+
+  openEditItemPriceModal(index) {
+    const item = this.cart[index];
+    if (!item) return;
+    const originalPrice = (typeof item.original_price === 'number') ? item.original_price : parseFloat(item.price);
+    const currentPrice = parseFloat(item.price);
+
+    window.App.showModal({
+      title: `✏️ Edit Item Price (This Bill Only)`,
+      bodyHtml: `
+        <div style="margin-bottom:14px;background:var(--bg-tertiary);border:1px solid var(--border-color);border-radius:var(--radius-md);padding:12px;">
+          <div style="font-weight:700;font-size:15px;color:var(--text-primary);margin-bottom:2px;">${item.name}</div>
+          <div style="font-size:12px;color:var(--text-muted);">
+            Original Menu Price: <b>${window.App.formatCurrency(originalPrice)}</b> &bull; Quantity: <b>${item.quantity}</b>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px;">Unit Price for this Bill (₹)</label>
+          <div class="input-icon-wrapper" style="position:relative;">
+            <input type="number" id="modal-item-price-input" class="input-lg" style="width:100%;font-size:18px;font-weight:700;padding-left:14px;" value="${currentPrice}" min="0" step="any" autofocus>
+          </div>
+          <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:4px;">
+            ⚠️ This custom price applies only to this specific bill. The regular menu price will not change.
+          </span>
+        </div>
+
+        <div class="form-group" style="margin-bottom:14px;">
+          <label style="font-weight:600;font-size:13px;display:block;margin-bottom:6px;">Kitchen Instruction / Notes (Optional)</label>
+          <input type="text" id="modal-item-notes-input" value="${item.notes || ''}" placeholder="e.g. Less spicy, custom preparation">
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;padding-top:10px;border-top:1px solid var(--border-color);flex-wrap:wrap;gap:8px;">
+          <button type="button" class="btn btn-outline btn-sm" id="btn-modal-reset-price" style="font-size:12px;">
+            ↺ Reset to Menu Price (${window.App.formatCurrency(originalPrice)})
+          </button>
+          <div style="font-size:13px;color:var(--text-secondary);">
+            New Line Total: <b id="modal-item-new-total" style="color:var(--accent-primary);font-size:15px;">${window.App.formatCurrency(currentPrice * item.quantity)}</b>
+          </div>
+        </div>
+      `,
+      footerButtons: [
+        { text: 'Cancel', className: 'btn btn-outline btn-sm' },
+        {
+          text: 'Apply Price',
+          className: 'btn btn-primary btn-sm',
+          onClick: () => {
+            const priceInput = document.getElementById('modal-item-price-input');
+            const notesInput = document.getElementById('modal-item-notes-input');
+            const newPrice = parseFloat(priceInput?.value);
+            if (isNaN(newPrice) || newPrice < 0) {
+              window.App.showToast('Please enter a valid price (greater than or equal to 0)', 'warning');
+              return;
+            }
+            item.original_price = originalPrice;
+            item.price = newPrice;
+            item.is_custom_price = (Math.abs(newPrice - originalPrice) > 0.001);
+            if (notesInput) item.notes = notesInput.value.trim();
+            this.renderCart();
+            window.App.closeModal();
+            window.App.showToast(`Updated price for "${item.name}" to ${window.App.formatCurrency(newPrice)} (this bill only)`, 'success', 2500);
+          }
+        }
+      ]
+    });
+
+    setTimeout(() => {
+      const priceInput = document.getElementById('modal-item-price-input');
+      const resetBtn = document.getElementById('btn-modal-reset-price');
+      const totalEl = document.getElementById('modal-item-new-total');
+
+      if (priceInput) {
+        priceInput.focus();
+        priceInput.select();
+        priceInput.addEventListener('input', () => {
+          const val = parseFloat(priceInput.value) || 0;
+          if (totalEl) totalEl.textContent = window.App.formatCurrency(val * item.quantity);
+        });
+        priceInput.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            const applyBtn = document.querySelector('.modal-footer .btn-primary');
+            if (applyBtn) applyBtn.click();
+          }
+        });
+      }
+
+      if (resetBtn) {
+        resetBtn.onclick = () => {
+          if (priceInput) {
+            priceInput.value = originalPrice;
+            if (totalEl) totalEl.textContent = window.App.formatCurrency(originalPrice * item.quantity);
+          }
+        };
+      }
+    }, 60);
   },
 
   openItemNotesModal(index) {

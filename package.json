@@ -11,6 +11,9 @@
     "@capacitor/android": "^7.0.1",
     "@capacitor/cli": "^7.0.1",
     "@capacitor/core": "^7.0.1",
-    "@capgo/capacitor-native-biometric": "^7.6.0"
+    "@capacitor/filesystem": "^7.1.9",
+    "@capacitor/share": "^7.0.4",
+    "@capgo/capacitor-native-biometric": "^7.6.0",
+    "jspdf": "^4.2.1"
   }
 }

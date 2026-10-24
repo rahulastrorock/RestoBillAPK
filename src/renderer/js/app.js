@@ -1374,39 +1374,380 @@ window.App = {
     return lines.join('\n');
   },
 
-  shareOrderOnWhatsApp(order, targetPhone = null) {
+  // ─── PDF Invoice Generation ───────────────────────────────────────
+  generateOrderPdfDoc(order, settings = {}) {
+    const s = settings || this.settings || {};
+    const restaurantName = s.restaurant_name || 'RestoBill Restaurant';
+    const address = s.restaurant_address || '';
+    const phone = s.restaurant_phone || '';
+    const gstin = s.gstin || '';
+    const fssai = s.fssai_no || '';
+    const footerText = s.footer_text || 'Thank you for dining with us! Visit again!';
+    const items = order.items || [];
+
+    // 80mm roll format: 80mm width with dynamic height
+    const minHeight = 160;
+    const computedHeight = Math.max(minHeight, 130 + (items.length * 9) + (order.notes ? 10 : 0));
+
+    const jsPDFClass = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
+    if (!jsPDFClass) {
+      throw new Error('PDF generator library (jsPDF) is not loaded');
+    }
+
+    const doc = new jsPDFClass({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: [80, computedHeight]
+    });
+
+    const pageWidth = 80;
+    const margin = 5;
+    const contentWidth = pageWidth - (margin * 2);
+    let y = 8;
+
+    // Header - Restaurant Name
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text(restaurantName, pageWidth / 2, y, { align: 'center' });
+    y += 5;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    if (address) {
+      const splitAddress = doc.splitTextToSize(address, contentWidth);
+      doc.text(splitAddress, pageWidth / 2, y, { align: 'center' });
+      y += (splitAddress.length * 3.5);
+    }
+    if (phone) {
+      doc.text(`Phone: ${phone}`, pageWidth / 2, y, { align: 'center' });
+      y += 3.5;
+    }
+    if (gstin) {
+      doc.text(`GSTIN: ${gstin}`, pageWidth / 2, y, { align: 'center' });
+      y += 3.5;
+    }
+    if (fssai) {
+      doc.text(`FSSAI: ${fssai}`, pageWidth / 2, y, { align: 'center' });
+      y += 3.5;
+    }
+
+    // Divider
+    y += 1;
+    doc.setLineDashPattern([1, 1], 0);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 4;
+
+    // Title
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.text(s.receipt_header_title || 'TAX INVOICE / BILL RECEIPT', pageWidth / 2, y, { align: 'center' });
+    y += 4;
+
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 4;
+
+    // Order Info
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text(`Invoice No: ${order.order_no || order.id}`, margin, y);
+    y += 3.5;
+
+    const dateStr = order.created_at ? new Date(order.created_at).toLocaleString('en-IN') : new Date().toLocaleString('en-IN');
+    doc.text(`Date: ${dateStr}`, margin, y);
+    y += 3.5;
+
+    if (order.table_no) {
+      doc.text(`Table: ${order.table_no}   Type: ${(order.order_type || 'dine_in').toUpperCase()}`, margin, y);
+      y += 3.5;
+    } else {
+      doc.text(`Order Type: ${(order.order_type || 'dine_in').toUpperCase()}`, margin, y);
+      y += 3.5;
+    }
+
+    if (order.customer_name || order.customer_phone) {
+      const custStr = [order.customer_name, order.customer_phone].filter(Boolean).join(' - ');
+      doc.text(`Customer: ${custStr}`, margin, y);
+      y += 3.5;
+    }
+
+    // Divider
+    y += 1;
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 3.5;
+
+    // Table Header
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.text('Item', margin, y);
+    doc.text('Qty', 44, y, { align: 'center' });
+    doc.text('Rate', 58, y, { align: 'right' });
+    doc.text('Amt', pageWidth - margin, y, { align: 'right' });
+    y += 2;
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 3.5;
+
+    // Items
+    doc.setFont('helvetica', 'normal');
+    for (const item of items) {
+      const itemName = item.name || 'Item';
+      const qty = String(item.quantity || 1);
+      const rate = `Rs. ${parseFloat(item.price || 0).toFixed(2)}`;
+      const lineTotal = `Rs. ${parseFloat(item.total || (item.price * item.quantity)).toFixed(2)}`;
+
+      const splitName = doc.splitTextToSize(itemName, 36);
+      doc.text(splitName, margin, y);
+      doc.text(qty, 44, y, { align: 'center' });
+      doc.text(rate, 58, y, { align: 'right' });
+      doc.text(lineTotal, pageWidth - margin, y, { align: 'right' });
+      y += (splitName.length * 3.5);
+      if (item.notes) {
+        doc.setFontSize(6.5);
+        doc.setTextColor(110);
+        doc.text(`  (${item.notes})`, margin, y);
+        doc.setFontSize(7.5);
+        doc.setTextColor(0);
+        y += 3;
+      }
+    }
+
+    // Divider
+    y += 1;
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 3.5;
+
+    // Totals
+    const rightValX = pageWidth - margin;
+    const labelX = 40;
+
+    doc.text('Subtotal:', labelX, y);
+    doc.text(`Rs. ${parseFloat(order.subtotal || 0).toFixed(2)}`, rightValX, y, { align: 'right' });
+    y += 3.5;
+
+    if (parseFloat(order.discount_amount || 0) > 0) {
+      doc.text('Discount:', labelX, y);
+      doc.text(`-Rs. ${parseFloat(order.discount_amount).toFixed(2)}`, rightValX, y, { align: 'right' });
+      y += 3.5;
+    }
+    if (parseFloat(order.cgst || 0) > 0) {
+      doc.text('CGST:', labelX, y);
+      doc.text(`Rs. ${parseFloat(order.cgst).toFixed(2)}`, rightValX, y, { align: 'right' });
+      y += 3.5;
+    }
+    if (parseFloat(order.sgst || 0) > 0) {
+      doc.text('SGST:', labelX, y);
+      doc.text(`Rs. ${parseFloat(order.sgst).toFixed(2)}`, rightValX, y, { align: 'right' });
+      y += 3.5;
+    }
+    if (parseFloat(order.round_off || 0) !== 0) {
+      doc.text('Round Off:', labelX, y);
+      doc.text(`Rs. ${parseFloat(order.round_off).toFixed(2)}`, rightValX, y, { align: 'right' });
+      y += 3.5;
+    }
+
+    // Grand Total
+    y += 1;
+    doc.setLineDashPattern([], 0); // solid line
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 4.5;
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.text('GRAND TOTAL:', margin, y);
+    doc.text(`Rs. ${parseFloat(order.total || 0).toFixed(2)}`, rightValX, y, { align: 'right' });
+    y += 5;
+
+    doc.setLineDashPattern([1, 1], 0);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 4;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text(`Payment: ${(order.payment_mode || 'cash').toUpperCase()} (${(order.status || 'completed').toUpperCase()})`, margin, y);
+    y += 5;
+
+    // Footer
+    doc.setFontSize(7.5);
+    doc.text(footerText, pageWidth / 2, y, { align: 'center' });
+
+    return doc;
+  },
+
+  blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result || '';
+        const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+        resolve(base64);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  },
+
+  async shareFileNativeOrWeb({ filename, blob, title, text, dialogTitle = 'Share File' }) {
+    // 1. Try Native Capacitor Plugins (Android APK)
+    if (window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform()) {
+      try {
+        const Filesystem = window.Capacitor.Plugins?.Filesystem || (window.Capacitor.registerPlugin ? window.Capacitor.registerPlugin('Filesystem') : null);
+        const Share = window.Capacitor.Plugins?.Share || (window.Capacitor.registerPlugin ? window.Capacitor.registerPlugin('Share') : null);
+
+        if (Filesystem && Share) {
+          const base64Data = await this.blobToBase64(blob);
+          const writeRes = await Filesystem.writeFile({
+            path: filename,
+            data: base64Data,
+            directory: 'CACHE'
+          });
+
+          await Share.share({
+            title: title || filename,
+            text: text || '',
+            files: [writeRes.uri],
+            dialogTitle: dialogTitle
+          });
+          return true;
+        }
+      } catch (nativeErr) {
+        console.warn('[Share] Capacitor Native share failed:', nativeErr);
+      }
+    }
+
+    // 2. Try Standard Web Share API (Android Chrome / WebView)
+    if (navigator.share) {
+      try {
+        const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            title: title || filename,
+            text: text || '',
+            files: [file]
+          });
+          return true;
+        }
+      } catch (webShareErr) {
+        if (webShareErr.name !== 'AbortError') {
+          console.warn('[Share] Web share failed:', webShareErr);
+        } else {
+          return false; // User dismissed
+        }
+      }
+    }
+
+    // 3. Fallback: Download file directly
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 3000);
+    return false;
+  },
+
+  async shareOrderOnWhatsApp(order, targetPhone = null, shareAsPdf = true) {
     if (!order) return;
     const phone = targetPhone || order.customer_phone;
-    const billText = this.generateOrderBillText(order);
+    const cleanPhone = phone ? String(phone).replace(/[^\d]/g, '') : '';
+    const formattedPhone = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
+    const filename = `RestoBill_Invoice_${order.order_no || order.id}.pdf`;
 
-    if (!phone) {
+    if (shareAsPdf) {
+      try {
+        const pdfDoc = this.generateOrderPdfDoc(order, this.settings);
+        const pdfBlob = pdfDoc.output('blob');
+
+        // Copy phone to clipboard so user can immediately search/paste in WhatsApp
+        if (formattedPhone) {
+          try {
+            await navigator.clipboard.writeText(formattedPhone);
+            this.showToast(`Customer phone (+${formattedPhone}) copied! Select WhatsApp to send PDF bill.`, 'success', 5000);
+          } catch (e) {
+            this.showToast(`Select WhatsApp to send PDF bill for Order #${order.order_no}`, 'info', 4000);
+          }
+        } else {
+          this.showToast(`Select WhatsApp to send PDF bill for Order #${order.order_no}`, 'info', 4000);
+        }
+
+        const shared = await this.shareFileNativeOrWeb({
+          filename: filename,
+          blob: pdfBlob,
+          title: `Bill Invoice #${order.order_no}`,
+          text: `Invoice #${order.order_no} for ${order.customer_name || 'Customer'} from ${this.settings?.restaurant_name || 'RestoBill'}`,
+          dialogTitle: 'Send Bill PDF via WhatsApp / Apps'
+        });
+
+        // Fallback for desktop browser: download file and open web WhatsApp
+        if (!shared && formattedPhone) {
+          const msg = `Dear Customer, please find attached the PDF invoice for your order #${order.order_no} from ${this.settings?.restaurant_name || 'RestoBill'}.`;
+          window.open(`https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(msg)}`, '_blank');
+        }
+        return;
+      } catch (pdfErr) {
+        console.error('[WhatsApp Share] PDF generation failed:', pdfErr);
+        this.showToast('Could not generate PDF: ' + pdfErr.message, 'warning');
+      }
+    }
+
+    // Plain text fallback
+    if (!formattedPhone) {
       this.openShareBillModal(order, 'whatsapp');
       return;
     }
-
-    let cleanPhone = String(phone).replace(/[^\d]/g, '');
-    if (cleanPhone.length === 10) {
-      cleanPhone = '91' + cleanPhone;
-    }
-
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(billText)}`;
+    const billText = this.generateOrderBillText(order);
+    const whatsappUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(billText)}`;
     window.open(whatsappUrl, '_blank');
-    this.showToast(`Opening WhatsApp for +${cleanPhone}...`, 'success');
+    this.showToast(`Opening WhatsApp for +${formattedPhone}...`, 'success');
   },
 
-  shareOrderViaEmail(order, targetEmail = null) {
+  async shareOrderViaEmail(order, targetEmail = null, shareAsPdf = true) {
     if (!order) return;
     const s = this.settings || {};
     const restaurantName = s.restaurant_name || 'RestoBill';
     const email = targetEmail || order.customer_email;
-    const billText = this.generateOrderBillText(order);
     const subject = `Tax Invoice & Bill Receipt: #${order.order_no} - ${restaurantName}`;
+    const filename = `RestoBill_Invoice_${order.order_no || order.id}.pdf`;
+
+    if (shareAsPdf) {
+      try {
+        const pdfDoc = this.generateOrderPdfDoc(order, s);
+        const pdfBlob = pdfDoc.output('blob');
+
+        if (email) {
+          try {
+            await navigator.clipboard.writeText(email);
+            this.showToast(`Recipient email (${email}) copied! Select Email/Gmail app to send PDF.`, 'success', 5000);
+          } catch (e) {
+            this.showToast(`Select Email/Gmail to attach PDF bill`, 'info', 4000);
+          }
+        }
+
+        const shared = await this.shareFileNativeOrWeb({
+          filename: filename,
+          blob: pdfBlob,
+          title: subject,
+          text: `Dear Customer,\n\nPlease find attached your tax invoice #${order.order_no} from ${restaurantName}.\n\nGrand Total: Rs. ${parseFloat(order.total || 0).toFixed(2)}\nDate: ${new Date(order.created_at || Date.now()).toLocaleString('en-IN')}\n\nThank you for dining with us!`,
+          dialogTitle: 'Email Bill PDF'
+        });
+
+        if (!shared && email) {
+          const mailtoUrl = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(this.generateOrderBillText(order))}`;
+          window.open(mailtoUrl, '_blank');
+        }
+        return;
+      } catch (pdfErr) {
+        console.error('[Email Share] PDF generation failed:', pdfErr);
+      }
+    }
 
     if (!email) {
       this.openShareBillModal(order, 'email');
       return;
     }
-
+    const billText = this.generateOrderBillText(order);
     const mailtoUrl = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(billText)}`;
     window.open(mailtoUrl, '_blank');
     this.showToast(`Opening Email client for ${email}...`, 'success');
@@ -1435,30 +1776,51 @@ window.App = {
             </div>
           </div>
 
-          <!-- WhatsApp Section -->
-          <div style="margin-bottom:16px;padding:12px;background:rgba(34,197,94,0.06);border:1px solid rgba(34,197,94,0.25);border-radius:var(--radius-md);">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:700;color:#22c55e;font-size:13px;">
-              <svg viewBox="0 0 24 24" fill="currentColor" width="18" height="18"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z"/></svg>
-              Share Directly via WhatsApp
+          <!-- WhatsApp Section with PDF Attachment -->
+          <div style="margin-bottom:16px;padding:14px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:var(--radius-md);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:#22c55e;font-size:14px;">
+                <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20"><path d="M12.04 2c-5.46 0-9.91 4.45-9.91 9.91 0 1.75.46 3.45 1.32 4.95L2.05 22l5.25-1.38c1.45.79 3.08 1.21 4.74 1.21 5.46 0 9.91-4.45 9.91-9.91 0-2.65-1.03-5.14-2.9-7.01A9.816 9.816 0 0012.04 2z"/></svg>
+                Share via WhatsApp
+              </div>
+              <span style="font-size:11px;background:rgba(34,197,94,0.2);color:#22c55e;padding:2px 8px;border-radius:10px;font-weight:600;">PDF Attachment</span>
             </div>
-            <div style="display:flex;gap:8px;">
-              <input type="tel" id="share-modal-phone" class="input-sm" style="flex:1;" placeholder="Enter 10-digit mobile number..." value="${initialPhone}">
-              <button type="button" class="btn btn-sm btn-primary" id="btn-share-modal-whatsapp" style="background:#22c55e;border-color:#22c55e;white-space:nowrap;">
-                Send WhatsApp ➔
+            <div class="form-group" style="margin-bottom:10px;">
+              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">Customer WhatsApp Mobile Number</label>
+              <input type="tel" id="share-modal-phone" class="input-sm" style="width:100%;font-size:14px;font-weight:600;" placeholder="Enter 10-digit mobile number..." value="${initialPhone}">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-sm btn-primary" id="btn-share-modal-whatsapp-pdf" style="background:#22c55e;border-color:#22c55e;flex:1;min-width:180px;font-weight:700;">
+                📎 Attach & Send PDF Bill ➔
+              </button>
+              <button type="button" class="btn btn-sm btn-outline" id="btn-share-modal-download-pdf" style="border-color:#22c55e;color:#22c55e;">
+                📥 Download PDF
+              </button>
+              <button type="button" class="btn btn-sm btn-outline" id="btn-share-modal-whatsapp-text" style="color:var(--text-muted);font-size:11px;" title="Send traditional plain text receipt">
+                💬 Text Only
               </button>
             </div>
           </div>
 
-          <!-- Email Section -->
-          <div style="margin-bottom:16px;padding:12px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.25);border-radius:var(--radius-md);">
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:700;color:#60a5fa;font-size:13px;">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/></svg>
-              Share via Email
+          <!-- Email Section with PDF Attachment -->
+          <div style="margin-bottom:16px;padding:14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.3);border-radius:var(--radius-md);">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+              <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:#60a5fa;font-size:14px;">
+                <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/><path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/></svg>
+                Share via Email
+              </div>
+              <span style="font-size:11px;background:rgba(59,130,246,0.2);color:#60a5fa;padding:2px 8px;border-radius:10px;font-weight:600;">PDF Attachment</span>
             </div>
-            <div style="display:flex;gap:8px;">
-              <input type="email" id="share-modal-email" class="input-sm" style="flex:1;" placeholder="Enter customer email address..." value="${initialEmail}">
-              <button type="button" class="btn btn-sm btn-primary" id="btn-share-modal-email" style="background:#3b82f6;border-color:#3b82f6;white-space:nowrap;">
-                Send Email ➔
+            <div class="form-group" style="margin-bottom:10px;">
+              <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">Customer Email Address</label>
+              <input type="email" id="share-modal-email" class="input-sm" style="width:100%;font-size:14px;" placeholder="Enter customer email address..." value="${initialEmail}">
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;">
+              <button type="button" class="btn btn-sm btn-primary" id="btn-share-modal-email-pdf" style="background:#3b82f6;border-color:#3b82f6;flex:1;min-width:180px;font-weight:700;">
+                📎 Email PDF Bill ➔
+              </button>
+              <button type="button" class="btn btn-sm btn-outline" id="btn-share-modal-email-text" style="color:var(--text-muted);font-size:11px;">
+                ✉️ Text Only
               </button>
             </div>
           </div>
@@ -1471,7 +1833,7 @@ window.App = {
                 📋 Copy Bill Text
               </button>
             </div>
-            <textarea id="share-modal-bill-text" class="input-sm" style="width:100%;height:130px;font-family:monospace;font-size:11px;line-height:1.4;background:var(--bg-tertiary);resize:none;" readonly>${billText}</textarea>
+            <textarea id="share-modal-bill-text" class="input-sm" style="width:100%;height:100px;font-family:monospace;font-size:11px;line-height:1.4;background:var(--bg-tertiary);resize:none;" readonly>${billText}</textarea>
           </div>
         </div>
       `,
@@ -1483,34 +1845,64 @@ window.App = {
     setTimeout(() => {
       const phoneInput = document.getElementById('share-modal-phone');
       const emailInput = document.getElementById('share-modal-email');
-      const sendWaBtn = document.getElementById('btn-share-modal-whatsapp');
-      const sendEmailBtn = document.getElementById('btn-share-modal-email');
+      const sendWaPdfBtn = document.getElementById('btn-share-modal-whatsapp-pdf');
+      const sendWaTextBtn = document.getElementById('btn-share-modal-whatsapp-text');
+      const downloadPdfBtn = document.getElementById('btn-share-modal-download-pdf');
+      const sendEmailPdfBtn = document.getElementById('btn-share-modal-email-pdf');
+      const sendEmailTextBtn = document.getElementById('btn-share-modal-email-text');
       const copyBtn = document.getElementById('btn-share-copy-text');
 
       if (defaultFocus === 'whatsapp' && phoneInput) phoneInput.focus();
       if (defaultFocus === 'email' && emailInput) emailInput.focus();
 
-      if (sendWaBtn && phoneInput) {
-        sendWaBtn.onclick = () => {
-          const phone = phoneInput.value.trim();
-          if (!phone) {
-            this.showToast('Please enter a phone number', 'warning');
-            phoneInput.focus();
-            return;
-          }
-          this.shareOrderOnWhatsApp(order, phone);
+      if (sendWaPdfBtn) {
+        sendWaPdfBtn.onclick = () => {
+          const phone = phoneInput ? phoneInput.value.trim() : '';
+          this.shareOrderOnWhatsApp(order, phone, true);
         };
       }
 
-      if (sendEmailBtn && emailInput) {
-        sendEmailBtn.onclick = () => {
-          const email = emailInput.value.trim();
-          if (!email) {
-            this.showToast('Please enter an email address', 'warning');
-            emailInput.focus();
+      if (sendWaTextBtn) {
+        sendWaTextBtn.onclick = () => {
+          const phone = phoneInput ? phoneInput.value.trim() : '';
+          if (!phone) {
+            this.showToast('Please enter a phone number', 'warning');
+            phoneInput?.focus();
             return;
           }
-          this.shareOrderViaEmail(order, email);
+          this.shareOrderOnWhatsApp(order, phone, false);
+        };
+      }
+
+      if (downloadPdfBtn) {
+        downloadPdfBtn.onclick = () => {
+          try {
+            const pdfDoc = this.generateOrderPdfDoc(order, this.settings);
+            const fname = `RestoBill_Invoice_${order.order_no || order.id}.pdf`;
+            pdfDoc.save(fname);
+            this.showToast(`Invoice downloaded as ${fname}`, 'success');
+          } catch (e) {
+            this.showToast('PDF download failed: ' + e.message, 'error');
+          }
+        };
+      }
+
+      if (sendEmailPdfBtn) {
+        sendEmailPdfBtn.onclick = () => {
+          const email = emailInput ? emailInput.value.trim() : '';
+          this.shareOrderViaEmail(order, email, true);
+        };
+      }
+
+      if (sendEmailTextBtn) {
+        sendEmailTextBtn.onclick = () => {
+          const email = emailInput ? emailInput.value.trim() : '';
+          if (!email) {
+            this.showToast('Please enter an email address', 'warning');
+            emailInput?.focus();
+            return;
+          }
+          this.shareOrderViaEmail(order, email, false);
         };
       }
 
@@ -1532,7 +1924,7 @@ window.App = {
           }
         };
       }
-    }, 50);
+    }, 60);
   },
 
   // ─── Export Data with Excel Format & Email Option ───────────────
@@ -1588,12 +1980,15 @@ window.App = {
                 <label style="font-size:12px;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">Email Subject</label>
                 <input type="text" id="export-modal-subject" class="input-sm" style="width:100%;" value="${subject}">
               </div>
-              <div style="display:flex;gap:8px;">
-                <button type="button" class="btn btn-primary btn-sm" id="btn-export-send-mail" style="flex:1;">
-                  ✉️ Send Email with Export Details
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-primary btn-sm" id="btn-export-send-mail" style="flex:1;min-width:200px;font-weight:700;">
+                  📎 Send Email with Attached CSV
                 </button>
                 <button type="button" class="btn btn-outline btn-sm" id="btn-export-copy-csv" title="Copy raw CSV to clipboard">
                   📋 Copy CSV Data
+                </button>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-export-plain-mailto" style="font-size:11px;color:var(--text-muted);" title="Open standard mailto">
+                  ✉️ Text Only
                 </button>
               </div>
             </div>
@@ -1609,15 +2004,48 @@ window.App = {
         const subjectInput = document.getElementById('export-modal-subject');
         const sendMailBtn = document.getElementById('btn-export-send-mail');
         const copyCsvBtn = document.getElementById('btn-export-copy-csv');
+        const plainMailBtn = document.getElementById('btn-export-plain-mailto');
 
         if (sendMailBtn) {
-          sendMailBtn.onclick = () => {
+          sendMailBtn.onclick = async () => {
             const toEmail = (emailInput?.value || '').trim();
-            if (!toEmail) {
-              this.showToast('Please enter an email address', 'warning');
-              emailInput?.focus();
-              return;
+            const subj = (subjectInput?.value || subject).trim();
+            const filename = `restobill_${type}_${dateStr}.csv`;
+            const emailBodyText = `Dear Restaurant Manager / Accountant,\n\nPlease find attached the exported ${title} CSV report from ${restaurantName}.\n\nRecords: ${count}${totalText}\nDate: ${dateStr}\n\nGenerated by RestoBill Billing Software.`;
+
+            if (toEmail) {
+              try {
+                await navigator.clipboard.writeText(toEmail);
+                this.showToast(`Recipient email (${toEmail}) copied! Select Gmail / Email app to attach CSV file.`, 'success', 5000);
+              } catch (e) {
+                this.showToast('Select Gmail or Email app to send CSV file', 'info', 4000);
+              }
+            } else {
+              this.showToast('Select Gmail or Email app to send CSV file', 'info', 4000);
             }
+
+            const bom = '\uFEFF';
+            const fileContent = csvContent.startsWith(bom) ? csvContent : bom + csvContent;
+            const csvBlob = new Blob([fileContent], { type: 'text/csv;charset=utf-8;' });
+
+            const shared = await this.shareFileNativeOrWeb({
+              filename: filename,
+              blob: csvBlob,
+              title: subj,
+              text: emailBodyText,
+              dialogTitle: 'Send CSV Report via Email / Apps'
+            });
+
+            if (!shared && toEmail) {
+              const mailtoUrl = `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(emailBodyText)}`;
+              window.open(mailtoUrl, '_blank');
+            }
+          };
+        }
+
+        if (plainMailBtn) {
+          plainMailBtn.onclick = () => {
+            const toEmail = (emailInput?.value || '').trim();
             const subj = (subjectInput?.value || subject).trim();
             const sampleRows = csvContent.split('\n').slice(0, 15).join('\n');
             const truncatedNote = csvContent.split('\n').length > 15 ? `\n... [${csvContent.split('\n').length - 15} more rows in the downloaded CSV file]` : '';
@@ -1625,7 +2053,7 @@ window.App = {
 
             const mailtoUrl = `mailto:${encodeURIComponent(toEmail)}?subject=${encodeURIComponent(subj)}&body=${encodeURIComponent(emailBody)}`;
             window.open(mailtoUrl, '_blank');
-            this.showToast(`Email client opened for ${toEmail}`, 'success');
+            this.showToast(`Email client opened for ${toEmail || 'export'}`, 'success');
           };
         }
 

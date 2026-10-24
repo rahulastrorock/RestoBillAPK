@@ -492,6 +492,7 @@
       runMigrations(db);
       seedData(db);
       triggerSaveDatabase();
+      setupAutoBackupScheduler();
       return db;
     })();
 
@@ -767,6 +768,98 @@
 
     return (tokenObj.access_token && !tokenObj.access_token.startsWith('4/')) ? tokenObj.access_token : null;
   }
+
+  // ─── Automatic Cloud Backup Scheduler ────────────────────────────
+  let autoBackupTimer = null;
+  async function runScheduledBackupCheck() {
+    try {
+      if (!db) return;
+      const enabledRow = db.prepare("SELECT value FROM settings WHERE key = 'backup_enabled'").get();
+      if (!enabledRow || enabledRow.value !== '1') return;
+
+      const tokenObj = getStoredGdriveTokenObj();
+      if (!tokenObj) return;
+
+      const freqRow = db.prepare("SELECT value FROM settings WHERE key = 'backup_frequency'").get();
+      const timeRow = db.prepare("SELECT value FROM settings WHERE key = 'backup_time'").get();
+      const lastRow = db.prepare("SELECT value FROM settings WHERE key = 'last_backup'").get();
+
+      const frequency = freqRow?.value || 'daily';
+      const backupTime = timeRow?.value || '23:00';
+      const lastBackupStr = lastRow?.value || localStorage.getItem('gdrive_last_backup');
+
+      const now = new Date();
+      let shouldBackup = false;
+
+      if (frequency === 'every_4_hours') {
+        if (!lastBackupStr) {
+          shouldBackup = true;
+        } else {
+          const diffHours = (now.getTime() - new Date(lastBackupStr).getTime()) / (1000 * 60 * 60);
+          if (diffHours >= 4) shouldBackup = true;
+        }
+      } else if (frequency === 'every_12_hours') {
+        if (!lastBackupStr) {
+          shouldBackup = true;
+        } else {
+          const diffHours = (now.getTime() - new Date(lastBackupStr).getTime()) / (1000 * 60 * 60);
+          if (diffHours >= 12) shouldBackup = true;
+        }
+      } else {
+        // Daily
+        const todayStr = getLocalDateString();
+        const lastDateStr = lastBackupStr ? new Date(lastBackupStr).toISOString().slice(0, 10) : '';
+        if (todayStr !== lastDateStr) {
+          const [targetHour, targetMinute] = backupTime.split(':').map(Number);
+          const currentHour = now.getHours();
+          const currentMinute = now.getMinutes();
+          if (currentHour > targetHour || (currentHour === targetHour && currentMinute >= targetMinute)) {
+            shouldBackup = true;
+          }
+        }
+      }
+
+      if (shouldBackup) {
+        console.log(`[RestoBill] AutoBackup: Starting scheduled cloud backup (${frequency})...`);
+        const res = await window.api.gdrive.backup();
+        if (res && res.success) {
+          console.log('[RestoBill] AutoBackup: Scheduled backup succeeded at', res.data?.timestamp || new Date().toISOString());
+        }
+      }
+    } catch (err) {
+      console.warn('[RestoBill] AutoBackup check error:', err);
+    }
+  }
+
+  function setupAutoBackupScheduler() {
+    if (autoBackupTimer) {
+      clearInterval(autoBackupTimer);
+      autoBackupTimer = null;
+    }
+    // Check every 2 minutes
+    autoBackupTimer = setInterval(runScheduledBackupCheck, 2 * 60 * 1000);
+    // Initial quick check after 4 seconds
+    setTimeout(runScheduledBackupCheck, 4000);
+  }
+
+  // Backup when app goes to background / closes if backup_on_exit === '1'
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden) {
+      try {
+        if (!db) return;
+        const exitRow = db.prepare("SELECT value FROM settings WHERE key = 'backup_on_exit'").get();
+        if (exitRow && exitRow.value === '1') {
+          const lastRow = db.prepare("SELECT value FROM settings WHERE key = 'last_backup'").get();
+          const lastBackupStr = lastRow?.value || localStorage.getItem('gdrive_last_backup');
+          const diffMinutes = lastBackupStr ? (Date.now() - new Date(lastBackupStr).getTime()) / (1000 * 60) : 999;
+          if (diffMinutes >= 15) {
+            console.log('[RestoBill] AutoBackup: Triggering backup on app pause/exit...');
+            window.api.gdrive.backup().catch(() => {});
+          }
+        }
+      } catch (e) {}
+    }
+  });
 
   // ─── Expose window.api ───────────────────────────────────────────
   window.api = {
@@ -1574,7 +1667,10 @@
         for (const [k, v] of Object.entries(settings)) {
           upsert.run(k, String(v));
         }
-        return window.api.settings.getAll();
+        const rows = db.prepare('SELECT key, value FROM settings').all();
+        const res = {};
+        for (const r of rows) res[r.key] = r.value;
+        return res;
       }),
     },
 
@@ -1967,6 +2063,32 @@
                 body: JSON.stringify({ role: 'reader', type: 'anyone' })
               });
             } catch (pErr) {}
+
+            // Keep only ONE latest copy in Google Drive: remove all older database backup files
+            try {
+              const query = encodeURIComponent("name contains 'restobill_backup' and mimeType != 'application/vnd.google-apps.folder' and trashed = false");
+              const listResp = await fetch(
+                `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)&pageSize=30`,
+                { headers: { 'Authorization': `Bearer ${accessToken}` } }
+              );
+              if (listResp.ok) {
+                const listData = await listResp.json();
+                const olderFiles = (listData.files || []).filter(f => f.id !== driveFileId);
+                for (const old of olderFiles) {
+                  try {
+                    console.log(`[RestoBill] Deleting previous Google Drive backup: ${old.name} (${old.id})`);
+                    await fetch(`https://www.googleapis.com/drive/v3/files/${old.id}`, {
+                      method: 'DELETE',
+                      headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                  } catch (delErr) {
+                    console.warn('[RestoBill] Could not delete old file:', delErr);
+                  }
+                }
+              }
+            } catch (cleanErr) {
+              console.warn('[RestoBill] Older backups cleanup error:', cleanErr);
+            }
           } else {
             const errText = await uploadResp.text();
             console.warn('[RestoBill] Google Drive upload failed with status', uploadResp.status, errText);
@@ -1981,9 +2103,12 @@
 
         // Save last backup timestamp
         localStorage.setItem('gdrive_last_backup', timestamp);
+        try {
+          db.prepare("INSERT INTO settings (key, value, updated_at) VALUES ('last_backup', ?, datetime('now', 'localtime')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
+            .run(timestamp);
+        } catch (e) {}
 
-        // Save to recent snapshots list
-        const backups = JSON.parse(localStorage.getItem('gdrive_backups_list') || '[]');
+        // Keep only single latest backup in history list
         const newBackup = {
           id: driveFileId,
           name: fileName,
@@ -1993,14 +2118,13 @@
           driveUrl: driveViewLink,
           folderUrl: currentFolderUrl
         };
-        backups.unshift(newBackup);
-        localStorage.setItem('gdrive_backups_list', JSON.stringify(backups.slice(0, 15)));
+        localStorage.setItem('gdrive_backups_list', JSON.stringify([newBackup]));
 
         return {
           success: true,
           uploadedToDrive: true,
           driveUrl: driveViewLink,
-          folderUrl,
+          folderUrl: currentFolderUrl,
           timestamp,
           backup: newBackup
         };
@@ -2029,14 +2153,13 @@
       }),
 
       getBackups: apiCall(async () => {
-        const localBackups = JSON.parse(localStorage.getItem('gdrive_backups_list') || '[]');
         const accessToken = await getValidGdriveToken();
 
         if (accessToken) {
           try {
             const query = encodeURIComponent("name contains 'restobill_backup' and mimeType != 'application/vnd.google-apps.folder' and trashed = false");
             const listResp = await fetch(
-              `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,size,createdTime,webViewLink)&orderBy=createdTime desc&pageSize=15`,
+              `https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,size,createdTime,webViewLink)&orderBy=createdTime desc&pageSize=1`,
               {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
               }
@@ -2045,6 +2168,7 @@
               const listData = await listResp.json();
               const driveFiles = (listData.files || [])
                 .filter(f => f.name.endsWith('.db') || f.name.includes('backup'))
+                .slice(0, 1)
                 .map(f => ({
                   id: f.id,
                   name: f.name,
@@ -2055,6 +2179,7 @@
                 }));
 
               if (driveFiles.length > 0) {
+                localStorage.setItem('gdrive_backups_list', JSON.stringify(driveFiles));
                 return driveFiles;
               }
             }
@@ -2063,7 +2188,8 @@
           }
         }
 
-        return localBackups;
+        const localBackups = JSON.parse(localStorage.getItem('gdrive_backups_list') || '[]');
+        return localBackups.slice(0, 1);
       }),
 
       disconnect: apiCall(async () => {
@@ -2086,7 +2212,15 @@
       }),
 
       updateSchedule: apiCall(async (sched) => {
+        if (sched && typeof sched === 'object') {
+          const upsert = db.prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now', 'localtime')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at");
+          for (const [k, v] of Object.entries(sched)) {
+            upsert.run(k, String(v));
+          }
+        }
         localStorage.setItem('gdrive_backup_schedule', JSON.stringify(sched));
+        setupAutoBackupScheduler();
+        setTimeout(runScheduledBackupCheck, 1000);
         return true;
       }),
 
