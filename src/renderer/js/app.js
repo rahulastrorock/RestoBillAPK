@@ -37,12 +37,12 @@ window.App = {
     // Check if login authentication is required
     const isLoginRequired = this.settings.require_login !== '0' && this.settings.require_login !== false;
     if (!isLoginRequired) {
-      // Unlocked mode: Automatically authenticate default admin and show POS
+      // Unlocked mode: Automatically authenticate default admin and restore active page (or POS)
       const unlockedUser = { id: 1, name: 'Administrator', username: 'admin', role: 'admin' };
       this.saveSession(unlockedUser);
       this.setUserSession(unlockedUser);
-      this.showApp();
-      this.navigate('pos');
+      const savedPage = localStorage.getItem('restobill_active_page') || 'pos';
+      this.showApp(savedPage);
       return;
     }
 
@@ -405,11 +405,20 @@ window.App = {
   },
 
   checkSavedSession() {
+    const appShell = document.getElementById('app-shell');
+    const isAppAlreadyOpen = Boolean(appShell && !appShell.classList.contains('hidden') && appShell.classList.contains('active') && this.currentUser);
+
     if (this.settings.require_login === '0' || this.settings.require_login === false) {
       const unlockedUser = { id: 1, name: 'Administrator', username: 'admin', role: 'admin' };
       this.saveSession(unlockedUser);
       this.setUserSession(unlockedUser);
-      this.showApp();
+      // Only transition and initialize app view if not already open
+      if (!isAppAlreadyOpen) {
+        const savedPage = localStorage.getItem('restobill_active_page') || 'pos';
+        this.showApp(savedPage);
+      } else {
+        this.updateSessionActivity();
+      }
       return true;
     }
 
@@ -425,7 +434,13 @@ window.App = {
       if (elapsed < this.SESSION_TIMEOUT_MS) {
         this.saveSession(user);
         this.setUserSession(user);
-        this.showApp();
+        // Only transition and initialize app view if not already open
+        if (!isAppAlreadyOpen) {
+          const savedPage = localStorage.getItem('restobill_active_page') || 'pos';
+          this.showApp(savedPage);
+        } else {
+          this.updateSessionActivity();
+        }
         return true;
       } else {
         this.clearSession();
@@ -867,6 +882,9 @@ window.App = {
       return;
     }
     this.clearSession();
+    try {
+      localStorage.removeItem('restobill_active_page');
+    } catch (e) {}
     this.showLogin();
     if (isTimeout) {
       this.showToast('Session expired after 30 minutes of inactivity. Please sign in.', 'warning', 4000);
@@ -880,7 +898,8 @@ window.App = {
       const unlockedUser = { id: 1, name: 'Administrator', username: 'admin', role: 'admin' };
       this.saveSession(unlockedUser);
       this.setUserSession(unlockedUser);
-      this.showApp();
+      const savedPage = localStorage.getItem('restobill_active_page') || 'pos';
+      this.showApp(savedPage);
       return;
     }
 
@@ -906,7 +925,7 @@ window.App = {
     this.updateBiometricLoginUI();
   },
 
-  showApp() {
+  showApp(targetPage = null) {
     const loginScreen = document.getElementById('login-screen');
     const appShell = document.getElementById('app-shell');
 
@@ -919,8 +938,11 @@ window.App = {
       appShell.classList.add('active');
     }
 
-    this.navigationHistory = [];
-    this.navigate('pos', false);
+    const savedPage = localStorage.getItem('restobill_active_page');
+    const pageToOpen = targetPage || savedPage || 'pos';
+
+    if (!this.navigationHistory) this.navigationHistory = [];
+    this.navigate(pageToOpen, false);
   },
 
   navigate(pageId, pushHistory = true) {
@@ -951,6 +973,9 @@ window.App = {
     }
 
     this.activePage = pageId;
+    try {
+      localStorage.setItem('restobill_active_page', pageId);
+    } catch (e) {}
 
     // Toggle on-screen topbar back button visibility (visible when away from POS)
     const topbarBackBtn = document.getElementById('btn-topbar-back');

@@ -8,17 +8,36 @@ window.SettingsUI = {
   settings: {},
 
   async load() {
+    try {
+      const savedTab = localStorage.getItem('restobill_settings_tab');
+      if (savedTab && ['restaurant', 'billing', 'printer', 'backup', 'metrics', 'about'].includes(savedTab)) {
+        this.activeTab = savedTab;
+      }
+    } catch (e) {}
     this.setupEventListeners();
+    this.syncTabButtons();
     await this.fetchSettings();
     this.render();
+  },
+
+  syncTabButtons() {
+    document.querySelectorAll('.settings-tab').forEach(t => {
+      if (t.getAttribute('data-settings-tab') === this.activeTab) {
+        t.classList.add('active');
+      } else {
+        t.classList.remove('active');
+      }
+    });
   },
 
   setupEventListeners() {
     document.querySelectorAll('.settings-tab').forEach(tab => {
       tab.onclick = () => {
-        document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
         this.activeTab = tab.getAttribute('data-settings-tab') || 'restaurant';
+        try {
+          localStorage.setItem('restobill_settings_tab', this.activeTab);
+        } catch (e) {}
+        this.syncTabButtons();
         this.render();
       };
     });
@@ -39,6 +58,8 @@ window.SettingsUI = {
   render() {
     const container = document.getElementById('settings-content');
     if (!container) return;
+
+    this.syncTabButtons();
 
     if (this.activeTab === 'restaurant') {
       this.renderRestaurantTab(container);
@@ -1808,9 +1829,9 @@ window.SettingsUI = {
   renderMetricsTab(container) {
     const s = this.settings;
     const isEnabled = s.supabase_enabled === '1';
-    const supabaseUrl = s.supabase_url || '';
-    const anonKey = s.supabase_anon_key || '';
-    const outletName = s.supabase_outlet_name || s.restaurant_name || 'RestoBill Main Branch';
+    const supabaseUrl = s.supabase_url || sessionStorage.getItem('draft_supabase_url') || '';
+    const anonKey = s.supabase_anon_key || sessionStorage.getItem('draft_supabase_anon_key') || '';
+    const outletName = s.supabase_outlet_name || s.restaurant_name || sessionStorage.getItem('draft_supabase_outlet') || 'RestoBill Main Branch';
 
     const sqlScript = `-- ═══════════════════════════════════════════════════════════════
 -- RESTOBILL LIVE METRICS & SALES TELEMETRY SCHEMA FOR SUPABASE
@@ -2153,8 +2174,21 @@ order by order_date desc, hour_of_day asc;`;
     // Save Form
     const form = document.getElementById('settings-supabase-form');
     if (form) {
+      // Auto-save draft inputs as user types so switching to Notepad never loses values
+      const urlInput = document.getElementById('input-supabase-url');
+      const keyInput = document.getElementById('input-supabase-key');
+      const outletInput = document.getElementById('input-supabase-outlet');
+
+      urlInput?.addEventListener('input', () => sessionStorage.setItem('draft_supabase_url', urlInput.value));
+      keyInput?.addEventListener('input', () => sessionStorage.setItem('draft_supabase_anon_key', keyInput.value));
+      outletInput?.addEventListener('input', () => sessionStorage.setItem('draft_supabase_outlet', outletInput.value));
+
       form.onsubmit = async (e) => {
         e.preventDefault();
+        sessionStorage.removeItem('draft_supabase_url');
+        sessionStorage.removeItem('draft_supabase_anon_key');
+        sessionStorage.removeItem('draft_supabase_outlet');
+
         const enabled = document.getElementById('select-supabase-enabled')?.value || '0';
         const url = (document.getElementById('input-supabase-url')?.value || '').trim();
         const key = (document.getElementById('input-supabase-key')?.value || '').trim();
