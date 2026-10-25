@@ -1868,6 +1868,15 @@ drop policy if exists "Allow anon read write restobill_heartbeats" on restobill_
 create policy "Allow anon read write restobill_heartbeats" on restobill_heartbeats
   for all to anon using (true) with check (true);
 
+-- 4. Grant Schema & Table Permissions to Anon Role (Crucial for PostgREST API visibility)
+grant usage on schema public to anon, authenticated;
+grant all on table restobill_orders to anon, authenticated;
+grant all on table restobill_heartbeats to anon, authenticated;
+grant all on all sequences in schema public to anon, authenticated;
+
+-- 5. Force PostgREST to reload schema cache immediately
+notify pgrst, 'reload schema';
+
 -- 4. Analytical Views for instant Charts & Dashboards
 create or replace view v_daily_sales_summary as
 select

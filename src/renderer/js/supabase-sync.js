@@ -10,10 +10,23 @@ window.SupabaseSync = {
   heartbeatTimer: null,
   isFlushing: false,
 
+  cleanSupabaseUrl(url) {
+    if (!url) return '';
+    let clean = url.trim().replace(/\/+$/, '');
+    // Correct .com to .co if user made a typo
+    if (clean.includes('.supabase.com')) {
+      clean = clean.replace('.supabase.com', '.supabase.co');
+    }
+    if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+      clean = 'https://' + clean;
+    }
+    return clean;
+  },
+
   getConfig() {
     const s = window.App?.settings || {};
     return {
-      url: (s.supabase_url || '').trim().replace(/\/+$/, ''),
+      url: this.cleanSupabaseUrl(s.supabase_url || ''),
       anonKey: (s.supabase_anon_key || '').trim(),
       enabled: s.supabase_enabled === '1' || s.supabase_enabled === true,
       outletName: (s.restaurant_name || 'RestoBill Outlet').trim()
@@ -47,7 +60,7 @@ window.SupabaseSync = {
    * Test connection to user's Supabase project with given URL and Anon Key
    */
   async testConnection(targetUrl, targetKey) {
-    const cleanUrl = (targetUrl || '').trim().replace(/\/+$/, '');
+    const cleanUrl = this.cleanSupabaseUrl(targetUrl);
     const cleanKey = (targetKey || '').trim();
 
     if (!cleanUrl) {
@@ -69,28 +82,38 @@ window.SupabaseSync = {
       });
 
       if (res.ok) {
-        return { success: true, message: 'Connected successfully to Supabase! Tables are ready.' };
+        return { success: true, message: 'Connected successfully to Supabase! Tables and REST API are fully accessible.' };
+      }
+
+      let errDetail = '';
+      try {
+        const errJson = await res.json();
+        errDetail = errJson.message || errJson.hint || JSON.stringify(errJson);
+      } catch (e) {
+        errDetail = await res.text().catch(() => '');
       }
 
       if (res.status === 401 || res.status === 403) {
-        return { success: false, message: 'Authentication failed. Please verify your Supabase Anon Key.' };
+        return {
+          success: false,
+          message: `Authentication failed (Status ${res.status}). Please verify that you copied the public "anon" key from Supabase Project Settings > API.\n${errDetail}`
+        };
       }
 
       if (res.status === 404) {
         return {
           success: false,
-          message: 'Connected to Supabase, but the "restobill_orders" table was not found. Please run the SQL schema script in Supabase SQL Editor.'
+          message: `Table exists in PostgreSQL, but PostgREST API has not published it yet (Status 404).\n\nFix: Open Supabase SQL Editor and run this quick grant & reload command:\n\nGRANT USAGE ON SCHEMA public TO anon, authenticated;\nGRANT ALL ON TABLE restobill_orders TO anon, authenticated;\nGRANT ALL ON TABLE restobill_heartbeats TO anon, authenticated;\nNOTIFY pgrst, 'reload schema';`
         };
       }
 
-      const text = await res.text();
-      return { success: false, message: `Supabase returned error (${res.status}): ${text}` };
+      return { success: false, message: `Supabase returned error (${res.status}): ${errDetail}` };
     } catch (err) {
       console.error('[SupabaseSync] Test connection error:', err);
       return {
         success: false,
         message: err.message.includes('Failed to fetch')
-          ? 'Network error. Please check your internet connection and Supabase Project URL.'
+          ? 'Network request failed. Please check your internet connection and verify that the Project URL is correct.'
           : `Connection failed: ${err.message}`
       };
     }
