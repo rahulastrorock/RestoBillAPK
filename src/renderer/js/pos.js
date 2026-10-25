@@ -1312,6 +1312,11 @@ window.POS = {
           window.Dashboard.load().catch(() => {});
         }
 
+        // Live Cloud Metrics Telemetry Sync (Supabase)
+        if (window.SupabaseSync?.syncOrder) {
+          window.SupabaseSync.syncOrder(processedOrder);
+        }
+
         if (isEditing) {
           window.App.navigate('orders');
         }

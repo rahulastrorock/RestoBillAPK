@@ -8,6 +8,9 @@ window.App = {
   settings: {},
   activePage: 'pos',
   currentTheme: 'dark',
+  navigationHistory: [],
+  lastBackPressTime: 0,
+  _lastBackHandled: 0,
 
   SESSION_TIMEOUT_MS: 30 * 60 * 1000, // 30 minutes default auto-logout
   sessionWatchdogTimer: null,
@@ -15,8 +18,14 @@ window.App = {
 
   async init() {
     this.setupEventListeners();
+    this.setupBackButtonHandler();
     this.startClock();
     await this.loadSettings();
+
+    // Initialize Supabase Live Metrics & Telemetry
+    if (window.SupabaseSync?.init) {
+      window.SupabaseSync.init();
+    }
 
     // Initialize Theme
     const savedTheme = localStorage.getItem('restobill_theme') || this.settings.theme || 'dark';
@@ -122,6 +131,15 @@ window.App = {
         } else {
           document.getElementById('sidebar')?.classList.toggle('collapsed');
         }
+      });
+    }
+
+    // Topbar back button
+    const topbarBackBtn = document.getElementById('btn-topbar-back');
+    if (topbarBackBtn) {
+      topbarBackBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        this.handleBackButton();
       });
     }
 
@@ -901,10 +919,11 @@ window.App = {
       appShell.classList.add('active');
     }
 
-    this.navigate('pos');
+    this.navigationHistory = [];
+    this.navigate('pos', false);
   },
 
-  navigate(pageId) {
+  navigate(pageId, pushHistory = true) {
     if (!this.canAccessPage(pageId)) {
       this.showToast('Access denied: You do not have permission to view this section', 'warning');
       if (this.canAccessPage(this.activePage)) {
@@ -913,7 +932,35 @@ window.App = {
       pageId = 'pos';
     }
 
+    const prevPage = this.activePage;
+
+    // Track navigation history stack
+    if (pushHistory && pageId !== prevPage) {
+      if (!this.navigationHistory) this.navigationHistory = [];
+      if (pageId === 'pos') {
+        // Navigating back to POS root clears history
+        this.navigationHistory = [];
+      } else {
+        if (this.navigationHistory[this.navigationHistory.length - 1] !== prevPage) {
+          this.navigationHistory.push(prevPage);
+        }
+        if (this.navigationHistory.length > 25) {
+          this.navigationHistory.shift();
+        }
+      }
+    }
+
     this.activePage = pageId;
+
+    // Toggle on-screen topbar back button visibility (visible when away from POS)
+    const topbarBackBtn = document.getElementById('btn-topbar-back');
+    if (topbarBackBtn) {
+      if (pageId !== 'pos') {
+        topbarBackBtn.classList.remove('hidden');
+      } else {
+        topbarBackBtn.classList.add('hidden');
+      }
+    }
 
     // Update sidebar navigation active links
     document.querySelectorAll('.sidebar-nav .nav-item').forEach(link => {
@@ -985,6 +1032,223 @@ window.App = {
     const backdrop = document.getElementById('sidebar-backdrop');
     if (sidebar) sidebar.classList.remove('mobile-open');
     if (backdrop) backdrop.classList.remove('active');
+  },
+
+  // ─── Android & Hardware Back Button Navigation Handler ─────────
+  setupBackButtonHandler() {
+    this.navigationHistory = [];
+    this.lastBackPressTime = 0;
+    this._lastBackHandled = 0;
+
+    // 1. Capacitor Native App Plugin listener (Android hardware / gesture back navigation)
+    try {
+      const cap = window.Capacitor;
+      const CapApp = cap?.Plugins?.App || (cap?.registerPlugin ? cap.registerPlugin('App') : null);
+      if (CapApp && typeof CapApp.addListener === 'function') {
+        CapApp.addListener('backButton', () => {
+          this.handleBackButton();
+        });
+      }
+    } catch (e) {
+      console.warn('Capacitor App.addListener error:', e);
+    }
+
+    // 2. Cordova / WebView 'backbutton' document event
+    document.addEventListener('backbutton', (e) => {
+      if (e) {
+        if (typeof e.preventDefault === 'function') e.preventDefault();
+        if (typeof e.stopPropagation === 'function') e.stopPropagation();
+      }
+      this.handleBackButton();
+    }, false);
+
+    // 3. Browser popstate event (mobile browser navigation / history)
+    window.addEventListener('popstate', () => {
+      this.handleBackButton();
+    });
+
+    // Expose globally so native Android or other components can invoke it directly
+    window.handleAndroidBackButton = () => this.handleBackButton();
+  },
+
+  handleBackButton() {
+    const now = Date.now();
+    // Debounce to prevent duplicate invocations within 250ms (if native & document events both trigger)
+    if (this._lastBackHandled && (now - this._lastBackHandled) < 250) {
+      return true;
+    }
+    this._lastBackHandled = now;
+
+    // 1. Check if on Login Screen
+    const loginScreen = document.getElementById('login-screen');
+    if (loginScreen && !loginScreen.classList.contains('hidden') && loginScreen.classList.contains('active')) {
+      const modalOverlay = document.getElementById('modal-overlay');
+      if (modalOverlay && !modalOverlay.classList.contains('hidden')) {
+        this.closeModal();
+        return true;
+      }
+      if (now - this.lastBackPressTime < 2000) {
+        this.exitOrMinimizeApp();
+        return true;
+      } else {
+        this.lastBackPressTime = now;
+        this.showToast('Press back again to exit RestoBill', 'info', 2000);
+        return true;
+      }
+    }
+
+    // 2. Modal Dialog Overlay open -> Close modal
+    const modalOverlay = document.getElementById('modal-overlay');
+    if (modalOverlay && !modalOverlay.classList.contains('hidden')) {
+      this.closeModal();
+      return true;
+    }
+
+    // 3. Slide-in Order Detail Panel open -> Close detail panel
+    const detailPanel = document.getElementById('order-detail-panel');
+    if (detailPanel && !detailPanel.classList.contains('hidden')) {
+      this.closeDetailPanel();
+      return true;
+    }
+
+    // 4. Mobile Sidebar Drawer open -> Close sidebar
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar && sidebar.classList.contains('mobile-open')) {
+      this.closeMobileSidebar();
+      return true;
+    }
+
+    // 5. POS screen sub-views & edit mode
+    if (this.activePage === 'pos') {
+      // 5a. If viewing mobile cart, return to menu items view
+      const posLayout = document.getElementById('pos-layout');
+      if (posLayout && posLayout.classList.contains('show-cart')) {
+        const tabPosMenu = document.getElementById('tab-pos-menu');
+        const tabPosCart = document.getElementById('tab-pos-cart');
+        const floatingBar = document.getElementById('pos-mobile-floating-bar');
+        posLayout.classList.remove('show-cart');
+        tabPosMenu?.classList.add('active');
+        tabPosCart?.classList.remove('active');
+        if (window.POS?.cart?.length > 0 && floatingBar) {
+          floatingBar.classList.remove('hidden');
+        }
+        return true;
+      }
+
+      // 5b. If editing an existing order, prompt/cancel edit
+      if (window.POS?.editingOrderId) {
+        window.POS.cancelEditingOrder(true);
+        return true;
+      }
+    }
+
+    // 6. Menu screen sub-tabs (Categories -> Items)
+    if (this.activePage === 'menu') {
+      if (window.MenuUI && window.MenuUI.activeTab === 'categories') {
+        window.MenuUI.switchTab('items');
+        return true;
+      }
+    }
+
+    // 7. Settings screen sub-tabs (any other tab -> Restaurant tab)
+    if (this.activePage === 'settings') {
+      if (window.SettingsUI && window.SettingsUI.activeTab !== 'restaurant') {
+        const restTabBtn = document.querySelector('.settings-tab[data-settings-tab="restaurant"]');
+        if (restTabBtn) {
+          restTabBtn.click();
+        } else {
+          window.SettingsUI.activeTab = 'restaurant';
+          window.SettingsUI.render();
+        }
+        return true;
+      }
+    }
+
+    // 8. Reports screen sub-tabs (any other tab -> Sales Report tab)
+    if (this.activePage === 'reports') {
+      if (window.ReportsUI && window.ReportsUI.activeTab !== 'sales-report') {
+        const salesTabBtn = document.querySelector('#page-reports .tab-btn[data-tab="sales-report"]');
+        if (salesTabBtn) {
+          salesTabBtn.click();
+        } else {
+          window.ReportsUI.activeTab = 'sales-report';
+          window.ReportsUI.generateReport();
+        }
+        return true;
+      }
+    }
+
+    // 9. Page-level Navigation History Stack
+    if (this.navigationHistory && this.navigationHistory.length > 0) {
+      let prevPage = this.navigationHistory.pop();
+      while (prevPage === this.activePage && this.navigationHistory.length > 0) {
+        prevPage = this.navigationHistory.pop();
+      }
+      if (prevPage && prevPage !== this.activePage && this.canAccessPage(prevPage)) {
+        this.navigate(prevPage, false);
+        return true;
+      }
+    }
+
+    // 10. If on any non-POS screen and history is empty, return to POS
+    if (this.activePage !== 'pos') {
+      this.navigate('pos', false);
+      return true;
+    }
+
+    // 11. Already on Root Screen (POS) with nothing to close:
+    // Prompt to exit: Double press back within 2 seconds
+    if (now - this.lastBackPressTime < 2000) {
+      this.exitOrMinimizeApp();
+      return true;
+    } else {
+      this.lastBackPressTime = now;
+      this.showToast('Press back again to exit RestoBill', 'info', 2000);
+      return true;
+    }
+  },
+
+  exitOrMinimizeApp() {
+    // 1. Try Native Android App Bridge (clean background minimize without losing state)
+    if (window.AndroidAppBridge && typeof window.AndroidAppBridge.minimizeApp === 'function') {
+      try {
+        window.AndroidAppBridge.minimizeApp();
+        return;
+      } catch (e) {
+        console.warn('AndroidAppBridge minimize error:', e);
+      }
+    }
+
+    // 2. Try Capacitor App Plugin exitApp
+    try {
+      const cap = window.Capacitor;
+      const CapApp = cap?.Plugins?.App || (cap?.registerPlugin ? cap.registerPlugin('App') : null);
+      if (CapApp && typeof CapApp.exitApp === 'function') {
+        CapApp.exitApp();
+        return;
+      }
+    } catch (e) {
+      console.warn('Capacitor App.exitApp error:', e);
+    }
+
+    // 3. Fallback to AndroidAppBridge exitApp
+    if (window.AndroidAppBridge && typeof window.AndroidAppBridge.exitApp === 'function') {
+      try {
+        window.AndroidAppBridge.exitApp();
+        return;
+      } catch (e) {}
+    }
+
+    // 4. Fallback for Cordova / other Android webview
+    if (navigator.app && typeof navigator.app.exitApp === 'function') {
+      navigator.app.exitApp();
+      return;
+    }
+
+    // 5. Browser window.close fallback
+    try {
+      window.close();
+    } catch (e) {}
   },
 
   // ─── Modal Dialog Management ─────────────────────────────────────

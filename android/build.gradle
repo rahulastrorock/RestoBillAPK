@@ -22,6 +22,22 @@ allprojects {
         google()
         mavenCentral()
     }
+    afterEvaluate { project ->
+        def currentJvmMajor = Integer.parseInt(JavaVersion.current().getMajorVersion())
+        if (project.plugins.hasPlugin("kotlin-android") || project.plugins.hasPlugin("org.jetbrains.kotlin.android")) {
+            project.kotlin {
+                jvmToolchain(currentJvmMajor)
+            }
+        }
+        if (project.hasProperty("android")) {
+            project.android {
+                compileOptions {
+                    sourceCompatibility = JavaVersion.current()
+                    targetCompatibility = JavaVersion.current()
+                }
+            }
+        }
+    }
 }
 
 task clean(type: Delete) {

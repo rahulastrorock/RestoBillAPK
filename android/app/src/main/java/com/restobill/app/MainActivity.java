@@ -16,6 +16,29 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Native Android App Bridge for graceful background minimize & exit
+        getBridge().getWebView().addJavascriptInterface(new Object() {
+            @JavascriptInterface
+            public void exitApp() {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        finish();
+                    }
+                });
+            }
+
+            @JavascriptInterface
+            public void minimizeApp() {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        moveTaskToBack(true);
+                    }
+                });
+            }
+        }, "AndroidAppBridge");
+
         // Native Android PrintManager Bridge for Bluetooth & Thermal Printers
         getBridge().getWebView().addJavascriptInterface(new Object() {
             @JavascriptInterface

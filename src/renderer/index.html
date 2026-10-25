@@ -160,6 +160,9 @@
           <button class="btn-icon" id="btn-toggle-sidebar" title="Toggle Sidebar">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
           </button>
+          <button class="btn-icon hidden" id="btn-topbar-back" title="Go Back">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="20" height="20"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+          </button>
           <img src="assets/logo.png" alt="RestoBill" class="topbar-logo-img">
           <h2 class="page-title" id="page-title">Billing (POS)</h2>
         </div>
@@ -706,6 +709,7 @@
               <button class="settings-tab" data-settings-tab="billing">🧾 Billing & GST</button>
               <button class="settings-tab" data-settings-tab="printer">🖨️ Printer</button>
               <button class="settings-tab" data-settings-tab="backup">☁️ Cloud Backup</button>
+              <button class="settings-tab" data-settings-tab="metrics">📊 Cloud Metrics</button>
               <button class="settings-tab" data-settings-tab="about">ℹ️ About</button>
             </div>
             <div class="settings-content" id="settings-content">
@@ -769,6 +773,8 @@
   <script src="js/mobile-api.js?v=20261025a"></script>
   <!-- Real Hardware Biometric Authentication Service -->
   <script src="js/biometric-auth.js?v=20261025a"></script>
+  <!-- Supabase Live Cloud Metrics & Telemetry -->
+  <script src="js/supabase-sync.js?v=20261025a"></script>
 
   <!-- Scripts -->
   <script src="js/app.js?v=20261025a"></script>
