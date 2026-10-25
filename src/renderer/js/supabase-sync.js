@@ -12,7 +12,16 @@ window.SupabaseSync = {
 
   cleanSupabaseUrl(url) {
     if (!url) return '';
-    let clean = url.trim().replace(/\/+$/, '');
+    let clean = url.trim();
+    // If user pasted dashboard URL like https://supabase.com/dashboard/project/ujjkbqimycboljtbcxno/...
+    const dashboardMatch = clean.match(/project\/([a-z0-9_-]+)/i);
+    if (dashboardMatch) {
+      return `https://${dashboardMatch[1]}.supabase.co`;
+    }
+    // If user pasted just the 20-character project ref (e.g. ujjkbqimycboljtbcxno)
+    if (/^[a-z0-9]{20}$/i.test(clean)) {
+      return `https://${clean}.supabase.co`;
+    }
     // Correct .com to .co if user made a typo
     if (clean.includes('.supabase.com')) {
       clean = clean.replace('.supabase.com', '.supabase.co');
@@ -20,6 +29,10 @@ window.SupabaseSync = {
     if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
       clean = 'https://' + clean;
     }
+    // Strip trailing slashes, /rest/v1, /rest
+    clean = clean.replace(/\/+$/, '');
+    clean = clean.replace(/\/rest\/v1\/?$/i, '');
+    clean = clean.replace(/\/rest\/?$/i, '');
     return clean;
   },
 
@@ -71,6 +84,40 @@ window.SupabaseSync = {
     }
 
     try {
+      // Step 1: Check base REST endpoint to verify Project URL and Anon Key validity
+      const rootRes = await fetch(`${cleanUrl}/rest/v1/`, {
+        method: 'GET',
+        headers: {
+          'apikey': cleanKey,
+          'Authorization': `Bearer ${cleanKey}`,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!rootRes.ok) {
+        let rootErr = '';
+        try {
+          const rootJson = await rootRes.json();
+          rootErr = rootJson.message || rootJson.hint || JSON.stringify(rootJson);
+        } catch (e) {
+          rootErr = await rootRes.text().catch(() => '');
+        }
+
+        if (rootRes.status === 401 || rootRes.status === 403) {
+          return {
+            success: false,
+            message: `Authentication failed (Status ${rootRes.status}): Invalid anon key.\nMake sure you copied the public "anon" key from Supabase Project Settings > API > Project API keys (anon public).\n${rootErr}`
+          };
+        }
+        if (rootRes.status === 404) {
+          return {
+            success: false,
+            message: `Project URL not reachable (Status 404): ${cleanUrl}\nPlease check that the URL matches Project Settings > API > Project URL (e.g. https://xyz.supabase.co)`
+          };
+        }
+      }
+
+      // Step 2: Check restobill_orders table endpoint
       const endpoint = `${cleanUrl}/rest/v1/restobill_orders?select=id&limit=1`;
       const res = await fetch(endpoint, {
         method: 'GET',
@@ -103,7 +150,7 @@ window.SupabaseSync = {
       if (res.status === 404) {
         return {
           success: false,
-          message: `Table exists in PostgreSQL, but PostgREST API has not published it yet (Status 404).\n\nFix: Open Supabase SQL Editor and run this quick grant & reload command:\n\nGRANT USAGE ON SCHEMA public TO anon, authenticated;\nGRANT ALL ON TABLE restobill_orders TO anon, authenticated;\nGRANT ALL ON TABLE restobill_heartbeats TO anon, authenticated;\nNOTIFY pgrst, 'reload schema';`
+          message: `Table exists in PostgreSQL, but PostgREST API has not reloaded its schema cache yet (Status 404).\n${errDetail ? `Server message: ${errDetail}\n\n` : ''}Instant Fix:\nIn your Supabase Dashboard, go to Project Settings (bottom gear ⚙️) > General > scroll down and click "Restart project" (takes ~15 seconds to reboot PostgREST and register all tables).`
         };
       }
 
