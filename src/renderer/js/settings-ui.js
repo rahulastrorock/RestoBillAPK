@@ -6,14 +6,21 @@
 window.SettingsUI = {
   activeTab: 'restaurant',
   settings: {},
+  unlockedTabs: { backup: false, metrics: false },
 
   async load() {
+    this.unlockedTabs = { backup: false, metrics: false };
     try {
       const savedTab = localStorage.getItem('restobill_settings_tab');
-      if (savedTab && ['restaurant', 'billing', 'printer', 'backup', 'metrics', 'about'].includes(savedTab)) {
+      // Only restore non-protected tabs; backup & metrics require admin password
+      if (savedTab && ['restaurant', 'billing', 'printer', 'about'].includes(savedTab)) {
         this.activeTab = savedTab;
+      } else {
+        this.activeTab = 'restaurant';
       }
-    } catch (e) {}
+    } catch (e) {
+      this.activeTab = 'restaurant';
+    }
     this.setupEventListeners();
     this.syncTabButtons();
     await this.fetchSettings();
@@ -32,14 +39,175 @@ window.SettingsUI = {
 
   setupEventListeners() {
     document.querySelectorAll('.settings-tab').forEach(tab => {
-      tab.onclick = () => {
-        this.activeTab = tab.getAttribute('data-settings-tab') || 'restaurant';
+      tab.onclick = async () => {
+        const targetTab = tab.getAttribute('data-settings-tab') || 'restaurant';
+        if (targetTab === 'backup' || targetTab === 'metrics') {
+          if (!this.unlockedTabs[targetTab]) {
+            const authorized = await this.promptAdminPassword(targetTab);
+            if (!authorized) return;
+          }
+        }
+        this.activeTab = targetTab;
         try {
           localStorage.setItem('restobill_settings_tab', this.activeTab);
         } catch (e) {}
         this.syncTabButtons();
         this.render();
       };
+    });
+  },
+
+  promptAdminPassword(targetTab) {
+    return new Promise((resolve) => {
+      const tabTitle = targetTab === 'backup' ? 'Cloud Backup' : 'Cloud Metrics';
+      const bodyHtml = `
+        <div style="padding: 10px 0; text-align: center;">
+          <div style="width: 56px; height: 56px; border-radius: 50%; background: rgba(99, 102, 241, 0.12); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; font-size: 28px;">
+            🔒
+          </div>
+          <h4 style="font-size: 17px; font-weight: 700; margin: 0 0 8px 0; color: var(--text-primary);">
+            Administrator Password Required
+          </h4>
+          <p style="font-size: 13px; color: var(--text-secondary); margin: 0 0 20px 0; line-height: 1.5;">
+            Access to <b>${tabTitle}</b> is restricted. Please enter your administrator password to unlock this page.
+          </p>
+
+          <div class="form-group" style="text-align: left; max-width: 320px; margin: 0 auto 10px auto;">
+            <label style="font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; display: block;">Admin Password</label>
+            <div style="position: relative; display: flex; align-items: center;">
+              <input type="password" id="modal-admin-pass-input" placeholder="Enter admin password"
+                     style="width: 100%; padding: 10px 42px 10px 12px; font-size: 14px; border-radius: var(--radius-sm); border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); box-sizing: border-box;" />
+              <button type="button" id="btn-toggle-admin-pass" style="position: absolute; right: 10px; background: none; border: none; cursor: pointer; color: var(--text-muted); font-size: 16px; padding: 4px;" title="Show/Hide Password">
+                👁️
+              </button>
+            </div>
+            <div id="modal-admin-pass-error" style="display: none; color: #ef4444; font-size: 12px; margin-top: 6px; font-weight: 500;">
+              ❌ Incorrect admin password. Please try again.
+            </div>
+          </div>
+        </div>
+      `;
+
+      let resolved = false;
+
+      const finish = (result) => {
+        if (!resolved) {
+          resolved = true;
+          window.App.closeModal();
+          resolve(result);
+        }
+      };
+
+      const handleUnlock = async () => {
+        const input = document.getElementById('modal-admin-pass-input');
+        const errorEl = document.getElementById('modal-admin-pass-error');
+        const val = input ? input.value : '';
+
+        if (!val) {
+          if (errorEl) {
+            errorEl.textContent = 'Please enter your admin password.';
+            errorEl.style.display = 'block';
+          }
+          if (input) input.focus();
+          return;
+        }
+
+        try {
+          const res = await window.api.auth.verifyAdminPassword(val);
+          if (res && res.success && res.data === true) {
+            this.unlockedTabs[targetTab] = true;
+            window.App.showToast(`🔓 ${tabTitle} unlocked`, 'success');
+            finish(true);
+          } else {
+            if (errorEl) {
+              errorEl.textContent = '❌ Incorrect admin password. Please try again.';
+              errorEl.style.display = 'block';
+            }
+            if (input) {
+              input.value = '';
+              input.focus();
+            }
+          }
+        } catch (err) {
+          if (errorEl) {
+            errorEl.textContent = 'Verification error: ' + err.message;
+            errorEl.style.display = 'block';
+          }
+        }
+      };
+
+      window.App.showModal({
+        title: '🔒 Admin Authentication',
+        bodyHtml,
+        footerButtons: [
+          {
+            text: 'Cancel',
+            className: 'btn btn-outline',
+            onClick: () => finish(false)
+          },
+          {
+            text: 'Unlock Page',
+            className: 'btn btn-primary',
+            onClick: handleUnlock
+          }
+        ]
+      });
+
+      setTimeout(() => {
+        const input = document.getElementById('modal-admin-pass-input');
+        const toggleBtn = document.getElementById('btn-toggle-admin-pass');
+        if (input) {
+          input.focus();
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleUnlock();
+            }
+          });
+        }
+        if (toggleBtn && input) {
+          toggleBtn.addEventListener('click', () => {
+            input.type = input.type === 'password' ? 'text' : 'password';
+          });
+        }
+
+        const closeBtn = document.getElementById('modal-close');
+        if (closeBtn) {
+          const orig = closeBtn.onclick;
+          closeBtn.onclick = () => {
+            finish(false);
+            if (orig) orig();
+          };
+        }
+      }, 100);
+    });
+  },
+
+  renderLockedTab(container, tabName) {
+    const title = tabName === 'backup' ? 'Cloud Backup' : 'Cloud Metrics';
+    container.innerHTML = `
+      <div class="settings-section" style="text-align: center; padding: 60px 20px;">
+        <div style="font-size: 48px; margin-bottom: 16px;">🔒</div>
+        <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">${title} is Password Protected</h3>
+        <p style="color: var(--text-muted); font-size: 14px; max-width: 420px; margin: 0 auto 24px auto;">
+          Access to this section is restricted to administrators. Please enter your administrator password to unlock.
+        </p>
+        <div style="display: flex; gap: 12px; justify-content: center;">
+          <button type="button" class="btn btn-outline" id="btn-back-restaurant">🏪 Back to Restaurant</button>
+          <button type="button" class="btn btn-primary" id="btn-unlock-tab">🔓 Enter Admin Password</button>
+        </div>
+      </div>
+    `;
+    document.getElementById('btn-back-restaurant')?.addEventListener('click', () => {
+      this.activeTab = 'restaurant';
+      this.syncTabButtons();
+      this.render();
+    });
+    document.getElementById('btn-unlock-tab')?.addEventListener('click', async () => {
+      const ok = await this.promptAdminPassword(tabName);
+      if (ok) {
+        this.render();
+      }
     });
   },
 
@@ -60,6 +228,12 @@ window.SettingsUI = {
     if (!container) return;
 
     this.syncTabButtons();
+
+    // Enforce password protection for Cloud Backup and Cloud Metrics
+    if ((this.activeTab === 'backup' || this.activeTab === 'metrics') && !this.unlockedTabs[this.activeTab]) {
+      this.renderLockedTab(container, this.activeTab);
+      return;
+    }
 
     if (this.activeTab === 'restaurant') {
       this.renderRestaurantTab(container);
@@ -416,28 +590,28 @@ window.SettingsUI = {
             <!-- Left Column: Controls & Toggles -->
             <div class="printer-settings-main">
 
-              <!-- Mobile Bluetooth Thermal Printer Setup Card -->
-              <div class="printer-card" style="background: rgba(249, 115, 22, 0.06); border-color: rgba(249, 115, 22, 0.3);">
+              <!-- Mobile Direct Bluetooth Thermal Printer Setup Card -->
+              <div class="printer-card" style="background: rgba(16, 185, 129, 0.06); border-color: rgba(16, 185, 129, 0.3);">
                 <div class="printer-card-header">
                   <div class="printer-card-title">
-                    <span>📱</span>
-                    <span>Using Bluetooth Thermal Printer with Mobile</span>
+                    <span>⚡</span>
+                    <span>Direct Bluetooth Thermal Printing (No Third-Party Apps Needed!)</span>
                   </div>
-                  <span class="printer-card-badge" style="background: rgba(34, 197, 94, 0.15); color: #22c55e;">Bluetooth Ready</span>
+                  <span class="printer-card-badge" style="background: rgba(16, 185, 129, 0.2); color: #10b981;">Direct ESC/POS</span>
                 </div>
                 <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.6; padding: 4px 0;">
                   <p style="margin-bottom: 8px; font-weight: 600; color: var(--text-primary);">
-                    Yes! Bluetooth thermal printers work seamlessly with RestoBill on your mobile phone.
+                    RestoBill connects <b>directly</b> to your Bluetooth thermal printer (like Ezo Printer, ESC/POS 58mm/80mm) with <b>instant silent printing</b> and <b>zero confirmation dialogs</b>!
                   </p>
                   <ol style="padding-left: 20px; margin: 0 0 10px 0;">
                     <li style="margin-bottom: 5px;">
-                      <b>Pair with Phone:</b> Turn on your Bluetooth thermal printer, open your phone's <b>Settings &rarr; Bluetooth</b>, and pair with your printer (default PIN is usually <code>0000</code> or <code>1234</code>).
+                      <b>Pair with Phone:</b> Turn on your Bluetooth printer, open your phone's <b>Settings &rarr; Bluetooth</b>, and pair with your printer (e.g. Ezo Printer, PIN <code>0000</code> or <code>1234</code>).
                     </li>
                     <li style="margin-bottom: 5px;">
-                      <b>Print Service (Recommended):</b> Install <b>RawBT Print Service</b> (free on Google Play Store). Open it once and select your paired Bluetooth printer. This adds a direct ESC/POS print driver to Android.
+                      <b>Select Device Below:</b> Tap <b>"🔄 Refresh List"</b> below and choose your paired printer from the <b>Target Printer Device</b> dropdown.
                     </li>
                     <li>
-                      <b>Ready to Print:</b> When you tap <b>"Save & Print"</b> in Billing or <b>"Test Print"</b> above, RestoBill sends the formatted 58mm/80mm receipt with logo, GST, and QR code directly to your printer!
+                      <b>Instant Silent Print:</b> Keep <i>Print Execution Mode</i> on <b>Direct Silent Print (Instant)</b>. When you tap <b>"Save & Print"</b> or <b>"Test Print"</b>, your bill prints immediately with no popups or external apps!
                     </li>
                   </ol>
                 </div>
@@ -490,8 +664,8 @@ window.SettingsUI = {
                   <div class="form-group">
                     <label>Print Execution Mode</label>
                     <select name="silent_print">
-                      <option value="1" ${s.silent_print !== '0' ? 'selected' : ''}>Direct Silent Print (Instant)</option>
-                      <option value="0" ${s.silent_print === '0' ? 'selected' : ''}>Show Windows Print Dialog</option>
+                      <option value="1" ${s.silent_print !== '0' ? 'selected' : ''}>Direct Silent Print (Instant - No Dialog)</option>
+                      <option value="0" ${s.silent_print === '0' ? 'selected' : ''}>Show System Print Dialog</option>
                     </select>
                   </div>
                 </div>
@@ -979,6 +1153,18 @@ window.SettingsUI = {
       const currentS = getFormSettings();
       try {
         window.App.showToast('Sending test receipt to printer...', 'info');
+        // If Android Direct Bluetooth is available and silent print is enabled
+        if (window.AndroidPrinter && typeof window.AndroidPrinter.testPrintBluetooth === 'function' && currentS.silent_print !== '0') {
+          const resJson = window.AndroidPrinter.testPrintBluetooth(currentS.printer_device || '', JSON.stringify(currentS));
+          const res = JSON.parse(resJson || '{}');
+          if (res.success) {
+            window.App.showToast(res.message || 'Direct Bluetooth test print sent successfully!', 'success');
+            return;
+          } else {
+            console.warn('[DirectTestPrint] Direct attempt error:', res.error);
+          }
+        }
+
         if (currentS.printer_type === 'standard') {
           await window.api.print.invoice(sampleOrder, currentS);
         } else {
@@ -1020,6 +1206,10 @@ window.SettingsUI = {
 
   async renderBackupTab(container) {
     const s = this.settings;
+    const lastAutoRestore = localStorage.getItem('gdrive_last_auto_restore') || s.last_auto_restore;
+    const lastAutoRestoreText = lastAutoRestore ? window.App.formatDateTime(lastAutoRestore) : 'None yet';
+    const lastRestoredBackupName = localStorage.getItem('gdrive_last_restored_backup_name') || '';
+
     container.innerHTML = `
       <div class="settings-section">
         <!-- 💾 Local SQLite Database (.db File) Backup & Restore Card -->
@@ -1047,10 +1237,17 @@ window.SettingsUI = {
           </div>
         </div>
 
-        <h3 style="font-size:17px;font-weight:700;margin-bottom:4px;">Google Drive Cloud Backup</h3>
-        <p style="color:var(--text-muted);font-size:12px;margin-bottom:16px;">
-          Automatically or manually backup your restaurant database (menu, orders, customers) to Google Drive.
-        </p>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+          <div>
+            <h3 style="font-size:17px;font-weight:700;margin:0 0 4px 0;">Google Drive Cloud Backup</h3>
+            <p style="color:var(--text-muted);font-size:12px;margin:0;">
+              Automatically or manually backup your restaurant database (menu, orders, customers) to Google Drive.
+            </p>
+          </div>
+          <button type="button" id="btn-lock-backup" class="btn btn-outline btn-sm" style="font-size:12px;padding:6px 12px;display:flex;align-items:center;gap:6px;">
+            🔒 Lock Page
+          </button>
+        </div>
 
         <div id="backup-status-container" style="padding:14px;background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);margin-bottom:18px;width:100%;box-sizing:border-box;">
           <div class="loading-overlay"><div class="spinner"></div> Checking Google Drive connection...</div>
@@ -1119,6 +1316,72 @@ window.SettingsUI = {
           </form>
         </div>
 
+        <!-- Automatic Cloud Restore (Multi-Device Sync) Card -->
+        <div style="background:var(--bg-elevated);border-radius:var(--radius-md);border:1px solid var(--border-color);padding:16px;margin-bottom:20px;width:100%;box-sizing:border-box;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+            <div>
+              <h4 style="font-size:15px;font-weight:700;margin:0 0 2px 0;display:flex;align-items:center;gap:8px;">
+                <span>🔄</span> Multi-Device Sync (Automatic Cloud Restore)
+              </h4>
+              <p style="font-size:12px;color:var(--text-muted);margin:0;">
+                Connect two or more devices to the same Google Drive account. When ON, this device automatically restores the latest database backup every 4 or 12 hours. When OFF, restore is manual only.
+              </p>
+            </div>
+            <span style="display:inline-flex;align-items:center;padding:3px 9px;border-radius:12px;font-size:11px;font-weight:600;background:${s.auto_restore_enabled === '1' ? 'rgba(59,130,246,0.15)' : 'var(--bg-tertiary)'};color:${s.auto_restore_enabled === '1' ? 'var(--color-primary)' : 'var(--text-muted)'};border:1px solid ${s.auto_restore_enabled === '1' ? 'rgba(59,130,246,0.3)' : 'var(--border-color)'};">
+              ${s.auto_restore_enabled === '1' ? `● Auto-Restore Active (${s.auto_restore_frequency === 'every_12_hours' ? 'Every 12h' : 'Every 4h'})` : '○ Manual Restore Only'}
+            </span>
+          </div>
+
+          <form id="settings-auto-restore-form">
+            <div class="form-row">
+              <div class="form-group">
+                <label>Auto-Restore Mode</label>
+                <select name="auto_restore_enabled" id="select-auto-restore-enabled">
+                  <option value="1" ${s.auto_restore_enabled === '1' ? 'selected' : ''}>✅ ON (Auto-Restore Every 4h / 12h)</option>
+                  <option value="0" ${s.auto_restore_enabled !== '1' ? 'selected' : ''}>⛔ OFF (Manual Restore Only)</option>
+                </select>
+                <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:3px;">
+                  Turn <b>ON</b> on secondary/new devices. Keep <b>OFF</b> on primary billing counter.
+                </span>
+              </div>
+
+              <div class="form-group" id="group-auto-restore-freq" style="${s.auto_restore_enabled === '1' ? '' : 'opacity:0.6;'}">
+                <label>Restore Frequency</label>
+                <select name="auto_restore_frequency" id="select-auto-restore-frequency">
+                  <option value="every_4_hours" ${s.auto_restore_frequency === 'every_4_hours' || !s.auto_restore_frequency ? 'selected' : ''}>Every 4 Hours (Regular Sync)</option>
+                  <option value="every_12_hours" ${s.auto_restore_frequency === 'every_12_hours' ? 'selected' : ''}>Every 12 Hours (Twice Daily)</option>
+                </select>
+                <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:3px;">
+                  Checks Drive in background and updates DB whenever a newer backup is available.
+                </span>
+              </div>
+            </div>
+
+            <!-- Sync Status and Instant Sync Row -->
+            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-top:12px;padding:12px 14px;background:var(--bg-surface);border:1px solid var(--border-color);border-radius:var(--radius-sm);">
+              <div style="font-size:12px;color:var(--text-secondary);min-width:200px;">
+                <div>Last Auto-Restored: <b id="text-last-auto-restore" style="color:var(--text-primary);">${lastAutoRestoreText}</b></div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:2px;" id="text-last-backup-name">${lastRestoredBackupName ? 'Snapshot: ' + lastRestoredBackupName : 'No cloud snapshot restored yet'}</div>
+              </div>
+
+              <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                <button type="button" class="btn btn-outline btn-sm" id="btn-sync-drive-now" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:6px 12px;border-color:var(--color-primary);color:var(--color-primary);font-weight:600;">
+                  <span>⚡ Restore Latest Backup Now</span>
+                </button>
+                <button type="submit" class="btn btn-primary btn-sm" style="min-width:160px;">
+                  💾 Save Auto-Restore
+                </button>
+              </div>
+            </div>
+
+            <div style="margin-top:10px;font-size:11px;color:var(--text-secondary);line-height:1.4;background:rgba(99,102,241,0.06);padding:8px 12px;border-radius:6px;border:1px dashed rgba(99,102,241,0.2);">
+              💡 <b>Recommended Multi-Device Setup:</b><br>
+              &bull; <b>Primary Register / Main Billing Phone:</b> Keep Auto-Backup <b>ENABLED</b> and Auto-Restore <b>OFF</b>.<br>
+              &bull; <b>Secondary Devices / Manager Tablet / Second Phone:</b> Keep Auto-Restore <b>ON</b> (Every 4h or 12h) to automatically receive all new orders, menu edits, and customer data from the primary device!
+            </div>
+          </form>
+        </div>
+
         <!-- Snapshots / Manual Backups -->
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px;">
           <div>
@@ -1160,6 +1423,70 @@ window.SettingsUI = {
         window.App.settings = sMap;
       }
       this.render();
+    });
+
+    // Bind auto restore toggle & form
+    const selectAutoRestore = document.getElementById('select-auto-restore-enabled');
+    const groupAutoRestoreFreq = document.getElementById('group-auto-restore-freq');
+    selectAutoRestore?.addEventListener('change', (e) => {
+      if (groupAutoRestoreFreq) {
+        groupAutoRestoreFreq.style.opacity = e.target.value === '1' ? '1' : '0.6';
+      }
+    });
+
+    document.getElementById('settings-auto-restore-form')?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = Object.fromEntries(formData.entries());
+      await this.saveBulk(data, 'Auto-restore settings saved successfully!');
+      if (window.api.gdrive.updateSchedule) {
+        await window.api.gdrive.updateSchedule(data);
+      }
+      const fresh = await window.api.settings.getAll();
+      const sMap = fresh?.data || fresh;
+      if (sMap) {
+        this.settings = sMap;
+        window.App.settings = sMap;
+      }
+      this.render();
+    });
+
+    document.getElementById('btn-sync-drive-now')?.addEventListener('click', async () => {
+      const confirmed = confirm('Restore the latest Google Drive backup to this device now?');
+      if (!confirmed) return;
+
+      const btn = document.getElementById('btn-sync-drive-now');
+      if (btn) {
+        btn.disabled = true;
+        btn.innerText = '⏳ Syncing...';
+      }
+
+      try {
+        window.App.showToast('Checking Google Drive and downloading latest backup...', 'info', 4000);
+        const res = await window.api.gdrive.syncFromDriveNow();
+        const data = res?.data || res;
+        if (res?.success && data?.success) {
+          if (data.updated) {
+            const bName = data.backup?.name || 'latest backup';
+            window.App.showToast(`✅ Database updated successfully from ${bName}! Reloading...`, 'success', 3000);
+            setTimeout(() => {
+              window.location.reload();
+            }, 1200);
+          } else {
+            window.App.showToast('ℹ️ Database is already up to date with the latest Google Drive backup.', 'info', 4000);
+            this.render();
+          }
+        } else {
+          window.App.showToast(data?.reason || res?.error || 'Restore sync failed', 'error');
+        }
+      } catch (err) {
+        window.App.showToast('Sync error: ' + err.message, 'error');
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = '<span>⚡ Restore Latest Backup Now</span>';
+        }
+      }
     });
 
     // Check status
@@ -1418,6 +1745,14 @@ window.SettingsUI = {
 
     document.getElementById('btn-refresh-backups')?.addEventListener('click', () => {
       this.loadBackupsList();
+    });
+
+    document.getElementById('btn-lock-backup')?.addEventListener('click', () => {
+      this.unlockedTabs['backup'] = false;
+      this.activeTab = 'restaurant';
+      this.syncTabButtons();
+      this.render();
+      window.App.showToast('🔒 Cloud Backup locked', 'info');
     });
 
     this.loadBackupsList();
@@ -1941,9 +2276,14 @@ order by order_date desc, hour_of_day asc;`;
                 </p>
               </div>
             </div>
-            <span id="badge-supabase-status" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;background:${isEnabled && supabaseUrl ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)'};color:${isEnabled && supabaseUrl ? 'var(--color-success)' : 'var(--text-muted)'};border:1px solid ${isEnabled && supabaseUrl ? 'rgba(34,197,94,0.3)' : 'var(--border-color)'};">
-              ${isEnabled && supabaseUrl ? '● Live Sync Active' : '○ Cloud Sync Disabled'}
-            </span>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span id="badge-supabase-status" style="display:inline-flex;align-items:center;padding:4px 10px;border-radius:12px;font-size:12px;font-weight:600;background:${isEnabled && supabaseUrl ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)'};color:${isEnabled && supabaseUrl ? 'var(--color-success)' : 'var(--text-muted)'};border:1px solid ${isEnabled && supabaseUrl ? 'rgba(34,197,94,0.3)' : 'var(--border-color)'};">
+                ${isEnabled && supabaseUrl ? '● Live Sync Active' : '○ Cloud Sync Disabled'}
+              </span>
+              <button type="button" id="btn-lock-metrics" class="btn btn-outline btn-sm" style="font-size:12px;padding:6px 12px;display:flex;align-items:center;gap:6px;">
+                🔒 Lock Page
+              </button>
+            </div>
           </div>
 
           <div style="font-size:12px;color:var(--text-secondary);line-height:1.5;background:var(--bg-surface);padding:12px;border-radius:var(--radius-sm);border:1px solid var(--border-color);">
@@ -2253,6 +2593,14 @@ order by order_date desc, hour_of_day asc;`;
         }
       };
     }
+
+    document.getElementById('btn-lock-metrics')?.addEventListener('click', () => {
+      this.unlockedTabs['metrics'] = false;
+      this.activeTab = 'restaurant';
+      this.syncTabButtons();
+      this.render();
+      window.App.showToast('🔒 Cloud Metrics locked', 'info');
+    });
   },
 
   async saveBulk(settingsObj, customToast = 'Settings saved successfully!') {

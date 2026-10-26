@@ -1249,6 +1249,19 @@ input, select, textarea, button {
   position: relative;
 }
 
+.pos-gstin-row {
+  margin-top: 5px;
+  width: 100%;
+}
+
+.pos-gstin-row input {
+  width: 100%;
+  text-transform: uppercase;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.5px;
+}
+
 .customer-input-box {
   position: relative;
   display: flex;

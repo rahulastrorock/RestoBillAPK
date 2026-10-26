@@ -177,6 +177,7 @@ window.OrdersUI = {
       const offset = (this.filters.page - 1) * this.filters.limit;
       const payload = {
         status: this.filters.status,
+        search: this.filters.phone,
         phone: this.filters.phone,
         limit: this.filters.limit,
         offset: offset
@@ -209,7 +210,7 @@ window.OrdersUI = {
 
     if (this.orders.length === 0) {
       const msg = this.filters.phone
-        ? `No orders found matching phone "${window.App.escapeHtml(this.filters.phone)}".`
+        ? `No orders found matching "${window.App.escapeHtml(this.filters.phone)}".`
         : 'No orders found for the selected period.';
       if (tbody) {
         tbody.innerHTML = `
@@ -742,6 +743,7 @@ window.OrdersUI = {
     try {
       const payload = {
         status: this.filters.status,
+        search: this.filters.phone,
         phone: this.filters.phone,
         limit: 10000,
         offset: 0
@@ -899,7 +901,7 @@ window.OrdersUI = {
         const roundOff = Math.round(grandTotal) - grandTotal;
         const finalTotal = Math.round(grandTotal);
 
-        return { subtotal, discountAmount, cgst, sgst, roundOff, finalTotal };
+        return { subtotal: isInclusive ? totalTaxable : subtotal, discountAmount, cgst, sgst, roundOff, finalTotal };
       };
 
       const renderItemsList = () => {

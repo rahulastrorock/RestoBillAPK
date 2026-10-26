@@ -152,6 +152,15 @@ window.POS = {
     // Customer name autocomplete & dynamic filtering
     this.setupCustomerAutocomplete();
 
+    // Direct customer GSTIN input listener
+    const directGstinInput = document.getElementById('pos-customer-gstin');
+    if (directGstinInput) {
+      directGstinInput.addEventListener('input', (e) => {
+        this.customerGstin = (e.target.value || '').trim().toUpperCase();
+        this.updateGstinButtonState();
+      });
+    }
+
     // Discount button
     const discountBtn = document.getElementById('btn-discount');
     if (discountBtn) {
@@ -605,6 +614,17 @@ window.POS = {
       if (cgstEl) cgstEl.textContent = window.App.formatCurrency(0);
       if (sgstEl) sgstEl.textContent = window.App.formatCurrency(0);
       if (totalEl) totalEl.textContent = window.App.formatCurrency(0);
+
+      const defaultGstRate = (window.App?.settings?.default_gst_rate !== undefined && window.App.settings.default_gst_rate !== '')
+        ? parseFloat(window.App.settings.default_gst_rate)
+        : 5;
+      const halfRate = defaultGstRate / 2;
+      const halfRateStr = halfRate % 1 === 0 ? halfRate.toString() : halfRate.toFixed(1).replace(/\.0$/, '');
+      const cgstLabelEl = document.getElementById('pos-cgst-label');
+      const sgstLabelEl = document.getElementById('pos-sgst-label');
+      if (cgstLabelEl) cgstLabelEl.textContent = `CGST (${halfRateStr}%)`;
+      if (sgstLabelEl) sgstLabelEl.textContent = `SGST (${halfRateStr}%)`;
+
       const mobileBadge = document.getElementById('mobile-cart-badge');
       const floatingBar = document.getElementById('pos-mobile-floating-bar');
       if (mobileBadge) mobileBadge.textContent = '0';
@@ -690,11 +710,17 @@ window.POS = {
     let totalTaxable = 0;
     let totalGst = 0;
 
+    const defaultGstRate = (window.App?.settings?.default_gst_rate !== undefined && window.App.settings.default_gst_rate !== '')
+      ? parseFloat(window.App.settings.default_gst_rate)
+      : 5;
+
     for (const item of this.cart) {
       const lineTotal = item.price * item.quantity;
       subtotal += lineTotal;
 
-      const rate = item.gst_rate || 5;
+      const rate = (item.gst_rate !== undefined && item.gst_rate !== null && item.gst_rate !== '')
+        ? parseFloat(item.gst_rate)
+        : defaultGstRate;
       if (isInclusive) {
         const taxable = (lineTotal * 100) / (100 + rate);
         totalTaxable += taxable;
@@ -732,7 +758,14 @@ window.POS = {
 
     const finalTotal = Math.round(grandTotal);
 
-    if (subtotalEl) subtotalEl.textContent = window.App.formatCurrency(subtotal);
+    const subtotalLabelEl = document.getElementById('pos-subtotal-label');
+    if (subtotalLabelEl) {
+      subtotalLabelEl.textContent = isInclusive ? 'Taxable Amount' : 'Subtotal';
+    }
+
+    if (subtotalEl) {
+      subtotalEl.textContent = window.App.formatCurrency(isInclusive ? totalTaxable : subtotal);
+    }
 
     if (discountRow && discountEl && discountLabel) {
       if (discountAmount > 0) {
@@ -743,6 +776,18 @@ window.POS = {
         discountRow.style.display = 'none';
       }
     }
+
+    // Dynamic CGST / SGST rate percentage display
+    let displayRate = defaultGstRate;
+    if (this.cart.length > 0 && this.cart[0].gst_rate !== undefined && this.cart[0].gst_rate !== null && this.cart[0].gst_rate !== '') {
+      displayRate = parseFloat(this.cart[0].gst_rate);
+    }
+    const halfRate = displayRate / 2;
+    const halfRateStr = halfRate % 1 === 0 ? halfRate.toString() : halfRate.toFixed(1).replace(/\.0$/, '');
+    const cgstLabelEl = document.getElementById('pos-cgst-label');
+    const sgstLabelEl = document.getElementById('pos-sgst-label');
+    if (cgstLabelEl) cgstLabelEl.textContent = `CGST (${halfRateStr}%)`;
+    if (sgstLabelEl) sgstLabelEl.textContent = `SGST (${halfRateStr}%)`;
 
     if (cgstEl) cgstEl.textContent = window.App.formatCurrency(cgst);
     if (sgstEl) sgstEl.textContent = window.App.formatCurrency(sgst);
@@ -1036,10 +1081,12 @@ window.POS = {
     const tableInput = document.getElementById('pos-table-no');
     const nameInput = document.getElementById('pos-customer-name');
     const phoneInput = document.getElementById('pos-customer-phone');
+    const gstinInput = document.getElementById('pos-customer-gstin');
 
     if (tableInput) tableInput.value = '';
     if (nameInput) nameInput.value = '';
     if (phoneInput) phoneInput.value = '';
+    if (gstinInput) gstinInput.value = '';
 
     this.renderCart();
   },
@@ -1084,9 +1131,11 @@ window.POS = {
     const tableInput = document.getElementById('pos-table-no');
     const nameInput = document.getElementById('pos-customer-name');
     const phoneInput = document.getElementById('pos-customer-phone');
+    const gstinInput = document.getElementById('pos-customer-gstin');
     if (tableInput) tableInput.value = order.table_no || '';
     if (nameInput) nameInput.value = order.customer_name || '';
     if (phoneInput) phoneInput.value = order.customer_phone || '';
+    if (gstinInput) gstinInput.value = order.customer_gstin || '';
 
     this.customerId = order.customer_id || null;
     this.customerGstin = order.customer_gstin || '';
@@ -1253,6 +1302,8 @@ window.POS = {
     const tableNo = (document.getElementById('pos-table-no')?.value || '').trim();
     const customerName = (document.getElementById('pos-customer-name')?.value || '').trim();
     const customerPhone = (document.getElementById('pos-customer-phone')?.value || '').trim();
+    const directGstin = (document.getElementById('pos-customer-gstin')?.value || '').trim().toUpperCase();
+    const finalGstin = directGstin || this.customerGstin || '';
 
     const orderData = {
       items: this.cart,
@@ -1261,7 +1312,7 @@ window.POS = {
       customer_id: this.customerId || null,
       customer_name: customerName,
       customer_phone: customerPhone,
-      customer_gstin: this.customerGstin || '',
+      customer_gstin: finalGstin,
       user_id: window.App.currentUser?.id || 1,
       user_name: window.App.currentUser?.name || window.App.currentUser?.username || 'Admin',
       discount_type: this.discount.type,
@@ -1341,6 +1392,8 @@ window.POS = {
     const tableNo = (document.getElementById('pos-table-no')?.value || '').trim();
     const customerName = (document.getElementById('pos-customer-name')?.value || '').trim();
     const customerPhone = (document.getElementById('pos-customer-phone')?.value || '').trim();
+    const directGstin = (document.getElementById('pos-customer-gstin')?.value || '').trim().toUpperCase();
+    const finalGstin = directGstin || this.customerGstin || '';
 
     const isInclusive = window.App.settings.gst_inclusive === '1';
     let subtotal = 0;
@@ -1348,10 +1401,16 @@ window.POS = {
     let totalCgst = 0;
     let totalSgst = 0;
 
+    const defaultGstRate = (window.App?.settings?.default_gst_rate !== undefined && window.App.settings.default_gst_rate !== '')
+      ? parseFloat(window.App.settings.default_gst_rate)
+      : 5;
+
     const items = this.cart.map(i => {
       const lineTotal = i.price * i.quantity;
       subtotal += lineTotal;
-      const rate = i.gst_rate || 5;
+      const rate = (i.gst_rate !== undefined && i.gst_rate !== null && i.gst_rate !== '')
+        ? parseFloat(i.gst_rate)
+        : defaultGstRate;
       let taxable, cgst, sgst;
       if (isInclusive) {
         taxable = Math.round(((lineTotal * 100) / (100 + rate)) * 100) / 100;
@@ -1402,7 +1461,7 @@ window.POS = {
       order_type: this.orderType,
       customer_name: customerName || 'Guest',
       customer_phone: customerPhone,
-      customer_gstin: this.customerGstin,
+      customer_gstin: finalGstin,
       user_name: window.App?.currentUser?.name || window.App?.currentUser?.username || 'Cashier',
       payment_mode: this.paymentMode,
       created_at: new Date().toISOString(),
@@ -1571,16 +1630,33 @@ window.POS = {
       html += `<div class="customer-dropdown-empty">No customer found matching "<strong>${this.escapeHtml(query.trim())}</strong>"</div>`;
     }
 
-    // Bottom action button: Add customer to list
-    const addLabel = term ? `Add "${this.escapeHtml(query.trim())}" to customer list` : 'Add New Customer to Directory';
-    html += `
-      <div class="customer-dropdown-footer">
-        <button type="button" class="customer-dropdown-action" id="dropdown-add-customer">
-          <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
-          <span>➕ ${addLabel}</span>
-        </button>
-      </div>
-    `;
+    // Bottom action button: Add customer to list (only if not already in saved list)
+    const cleanDigits = term.replace(/[^\d]/g, '');
+    const isAlreadyPresent = term ? matches.some(c => {
+      const cPhone = (c.phone || '').trim().replace(/[^\d]/g, '');
+      const cName = (c.name || '').trim().toLowerCase();
+      if (cleanDigits && cleanDigits.length >= 5 && cPhone) {
+        if (cPhone === cleanDigits || cPhone.endsWith(cleanDigits) || cleanDigits.endsWith(cPhone)) {
+          return true;
+        }
+      }
+      if (cName && (cName === term || cName === term.trim())) {
+        return true;
+      }
+      return false;
+    }) : false;
+
+    if (!isAlreadyPresent) {
+      const addLabel = term ? `Add "${this.escapeHtml(query.trim())}" to customer list` : 'Add New Customer to Directory';
+      html += `
+        <div class="customer-dropdown-footer">
+          <button type="button" class="customer-dropdown-action" id="dropdown-add-customer">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/></svg>
+            <span>${addLabel}</span>
+          </button>
+        </div>
+      `;
+    }
 
     dropdown.innerHTML = html;
     dropdown.classList.remove('hidden');
@@ -1650,8 +1726,10 @@ window.POS = {
 
     const nameInput = document.getElementById('pos-customer-name');
     const phoneInput = document.getElementById('pos-customer-phone');
+    const gstinInput = document.getElementById('pos-customer-gstin');
     if (nameInput) nameInput.value = cust.name || '';
     if (phoneInput && cust.phone) phoneInput.value = cust.phone;
+    if (gstinInput) gstinInput.value = cust.gstin || '';
 
     this.updateGstinButtonState();
     this.hideCustomerDropdown();
@@ -1659,6 +1737,10 @@ window.POS = {
 
   updateGstinButtonState() {
     const gstinBtn = document.getElementById('btn-customer-gstin');
+    const gstinInput = document.getElementById('pos-customer-gstin');
+    if (gstinInput && gstinInput.value !== (this.customerGstin || '')) {
+      gstinInput.value = this.customerGstin || '';
+    }
     if (!gstinBtn) return;
     if (this.customerGstin) {
       gstinBtn.classList.add('active');

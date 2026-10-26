@@ -368,7 +368,7 @@
         ['state_name', 'Delhi'],
         ['state_code', '07'],
         ['currency_symbol', '₹'],
-        ['gst_inclusive', '1'],
+        ['gst_inclusive', '0'],
         ['default_gst_rate', '5'],
         ['invoice_prefix', 'INV'],
         ['invoice_start_no', '1'],
@@ -410,7 +410,9 @@
         ['theme', 'dark'],
         ['backup_enabled', '0'],
         ['tax_on_discount', 'after'],
-        ['require_login', '1']
+        ['require_login', '1'],
+        ['auto_restore_enabled', '0'],
+        ['auto_restore_frequency', 'every_4_hours']
       ];
 
       const insertSetting = dbWrap.prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
@@ -422,6 +424,21 @@
     // Ensure require_login always exists even if database was created previously
     try {
       dbWrap.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('require_login', '1')").run();
+    } catch (e) {}
+
+    // Ensure auto_restore settings exist
+    try {
+      dbWrap.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_restore_enabled', '0')").run();
+      dbWrap.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('auto_restore_frequency', 'every_4_hours')").run();
+    } catch (e) {}
+
+    // Ensure gst_inclusive is exclusive ('0') by default so GST is added to Grand Total
+    try {
+      const gstMigrated = dbWrap.prepare("SELECT value FROM settings WHERE key = 'gst_exclusive_migrated_v1'").get()?.value;
+      if (!gstMigrated) {
+        dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('gst_inclusive', '0')").run();
+        dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('gst_exclusive_migrated_v1', '1')").run();
+      }
     } catch (e) {}
 
     const catCount = dbWrap.prepare('SELECT COUNT(*) as count FROM categories').get();
@@ -533,6 +550,10 @@
       </tr>
     `).join('');
 
+    const isInclusive = s.gst_inclusive === '1';
+    const displaySubtotal = (isInclusive && order.taxable_amount > 0) ? order.taxable_amount : (order.subtotal || 0);
+    const subtotalLabel = isInclusive ? 'Taxable Amount:' : 'Subtotal:';
+
     return `<!DOCTYPE html>
 <html>
 <head>
@@ -578,7 +599,7 @@
   </table>
   <div class="divider"></div>
   <table>
-    <tr><td>Subtotal:</td><td class="right">${currency}${parseFloat(order.subtotal || 0).toFixed(2)}</td></tr>
+    <tr><td>${subtotalLabel}</td><td class="right">${currency}${parseFloat(displaySubtotal).toFixed(2)}</td></tr>
     ${order.discount_amount > 0 ? `<tr><td>Discount:</td><td class="right">-${currency}${parseFloat(order.discount_amount).toFixed(2)}</td></tr>` : ''}
     ${order.cgst > 0 ? `<tr><td>CGST:</td><td class="right">${currency}${parseFloat(order.cgst).toFixed(2)}</td></tr>` : ''}
     ${order.sgst > 0 ? `<tr><td>SGST:</td><td class="right">${currency}${parseFloat(order.sgst).toFixed(2)}</td></tr>` : ''}
@@ -831,15 +852,128 @@
     }
   }
 
+  // ─── Automatic Cloud Restore Scheduler (Multi-Device Sync) ───────
+  async function runScheduledRestoreCheck(forceNow = false) {
+    try {
+      if (!db) return { success: false, reason: 'Database not initialized' };
+
+      const enabledRow = db.prepare("SELECT value FROM settings WHERE key = 'auto_restore_enabled'").get();
+      const isEnabled = enabledRow && enabledRow.value === '1';
+
+      if (!forceNow && !isEnabled) {
+        return { success: false, reason: 'Auto-restore is disabled (manual only)' };
+      }
+
+      const tokenObj = getStoredGdriveTokenObj();
+      if (!tokenObj) {
+        return { success: false, reason: 'Google Drive is not connected' };
+      }
+
+      // Safety check: Never overwrite or disrupt when POS cart has active items being billed
+      if (!forceNow && window.POS && Array.isArray(window.POS.cart) && window.POS.cart.length > 0) {
+        console.log('[RestoBill] AutoRestore: Deferred because POS cart has active items.');
+        return { success: false, reason: 'POS cart active' };
+      }
+
+      const freqRow = db.prepare("SELECT value FROM settings WHERE key = 'auto_restore_frequency'").get();
+      const frequency = freqRow?.value || 'every_4_hours';
+      const lastRestoreStr = localStorage.getItem('gdrive_last_auto_restore') || db.prepare("SELECT value FROM settings WHERE key = 'last_auto_restore'").get()?.value;
+
+      const now = new Date();
+      let shouldRestore = forceNow;
+
+      if (!shouldRestore) {
+        if (!lastRestoreStr) {
+          shouldRestore = true;
+        } else {
+          const diffHours = (now.getTime() - new Date(lastRestoreStr).getTime()) / (1000 * 60 * 60);
+          const thresholdHours = frequency === 'every_12_hours' ? 12 : 4;
+          if (diffHours >= thresholdHours) {
+            shouldRestore = true;
+          }
+        }
+      }
+
+      if (!shouldRestore) {
+        return { success: false, reason: 'Schedule interval not reached yet' };
+      }
+
+      console.log(`[RestoBill] AutoRestore: Checking Google Drive for latest backup (${frequency})...`);
+      const backupsRes = await window.api.gdrive.getBackups();
+      const backupList = (backupsRes?.success && Array.isArray(backupsRes?.data)) ? backupsRes.data : (Array.isArray(backupsRes) ? backupsRes : []);
+
+      if (!backupList || backupList.length === 0) {
+        console.log('[RestoBill] AutoRestore: No backups found on Google Drive.');
+        return { success: false, reason: 'No backups found on Google Drive' };
+      }
+
+      const latestBackup = backupList[0];
+      const lastRestoredId = localStorage.getItem('gdrive_last_restored_backup_id');
+
+      // If the latest backup on Drive is identical to what was already restored, skip download
+      if (!forceNow && lastRestoredId && lastRestoredId === latestBackup.id) {
+        console.log(`[RestoBill] AutoRestore: Latest backup (${latestBackup.name}) already restored. Updating timestamp.`);
+        localStorage.setItem('gdrive_last_auto_restore', now.toISOString());
+        try {
+          db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_auto_restore', ?)").run(now.toISOString());
+        } catch (e) {}
+        return { success: true, updated: false, message: 'Already up to date', backup: latestBackup };
+      }
+
+      console.log(`[RestoBill] AutoRestore: Restoring database snapshot ${latestBackup.name} (${latestBackup.id})...`);
+      const restoreRes = await window.api.gdrive.restore(latestBackup.id);
+
+      if (restoreRes && (restoreRes.success || restoreRes.data?.success)) {
+        localStorage.setItem('gdrive_last_auto_restore', now.toISOString());
+        localStorage.setItem('gdrive_last_restored_backup_id', latestBackup.id);
+        localStorage.setItem('gdrive_last_restored_backup_name', latestBackup.name);
+        try {
+          db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_auto_restore', ?)").run(now.toISOString());
+          db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('last_restored_backup_id', ?)").run(latestBackup.id);
+        } catch (e) {}
+
+        if (window.App && typeof window.App.showToast === 'function') {
+          window.App.showToast(`🔄 Cloud Sync: Database restored from latest backup (${latestBackup.name})!`, 'success', 5000);
+        }
+
+        // Smooth UI refresh
+        try {
+          if (window.OrdersUI && typeof window.OrdersUI.fetchOrders === 'function') window.OrdersUI.fetchOrders();
+          if (window.POS && typeof window.POS.loadMenuItems === 'function') {
+            window.POS.loadCategories();
+            window.POS.loadMenuItems();
+          }
+          if (window.CustomersUI && typeof window.CustomersUI.fetchCustomers === 'function') window.CustomersUI.fetchCustomers();
+          if (window.Dashboard && typeof window.Dashboard.load === 'function') window.Dashboard.load();
+        } catch (refreshErr) {
+          console.warn('[RestoBill] AutoRestore UI refresh error:', refreshErr);
+        }
+
+        window.dispatchEvent(new CustomEvent('database-restored', { detail: { backup: latestBackup } }));
+        return { success: true, updated: true, backup: latestBackup };
+      } else {
+        console.warn('[RestoBill] AutoRestore: Restore failed', restoreRes);
+        return { success: false, reason: restoreRes?.error || 'Restore failed' };
+      }
+    } catch (err) {
+      console.warn('[RestoBill] AutoRestore check error:', err);
+      return { success: false, reason: err.message };
+    }
+  }
+
   function setupAutoBackupScheduler() {
     if (autoBackupTimer) {
       clearInterval(autoBackupTimer);
       autoBackupTimer = null;
     }
+    const runSchedulerTick = async () => {
+      await runScheduledBackupCheck();
+      await runScheduledRestoreCheck(false);
+    };
     // Check every 2 minutes
-    autoBackupTimer = setInterval(runScheduledBackupCheck, 2 * 60 * 1000);
+    autoBackupTimer = setInterval(runSchedulerTick, 2 * 60 * 1000);
     // Initial quick check after 4 seconds
-    setTimeout(runScheduledBackupCheck, 4000);
+    setTimeout(runSchedulerTick, 4000);
   }
 
   // Backup when app goes to background / closes if backup_on_exit === '1'
@@ -918,6 +1052,27 @@
         db.prepare("UPDATE users SET password_hash = ?, updated_at = datetime('now', 'localtime') WHERE id = ?")
           .run(newHash, userId);
         return true;
+      }),
+
+      verifyAdminPassword: apiCall(async (password) => {
+        if (!password) return false;
+        const admins = db.prepare("SELECT * FROM users WHERE role = 'admin' AND active = 1").all();
+        if (!admins || admins.length === 0) {
+          return password === 'admin123';
+        }
+        const bcrypt = window.dcodeIO?.bcrypt || window.bcrypt;
+        for (const admin of admins) {
+          if (bcrypt && admin.password_hash) {
+            try {
+              if (bcrypt.compareSync(password, admin.password_hash)) {
+                return true;
+              }
+            } catch (e) {}
+          } else {
+            if (password === 'admin123' && admin.username === 'admin') return true;
+          }
+        }
+        return false;
       }),
     },
 
@@ -1053,12 +1208,13 @@
 
         if (!items || items.length === 0) throw new Error('Order must have at least one item');
 
-        const isInclusive = (db.prepare("SELECT value FROM settings WHERE key = 'gst_inclusive'").get()?.value || '1') === '1';
+        const isInclusive = (db.prepare("SELECT value FROM settings WHERE key = 'gst_inclusive'").get()?.value || '0') === '1';
+        const defaultGstRate = parseFloat(db.prepare("SELECT value FROM settings WHERE key = 'default_gst_rate'").get()?.value || '5');
 
         const processedItems = items.map(item => {
           const qty = parseFloat(item.quantity) || 1;
           const price = parseFloat(item.price);
-          const gstRate = parseFloat(item.gst_rate) || 5;
+          const gstRate = (item.gst_rate !== undefined && item.gst_rate !== null && item.gst_rate !== '') ? parseFloat(item.gst_rate) : defaultGstRate;
           const lineTotal = price * qty;
           let taxableAmount, gstAmount;
 
@@ -1171,12 +1327,14 @@
         if (!existingOrder) throw new Error('Order not found');
         if (existingOrder.status === 'voided') throw new Error('Cannot edit a deleted/voided order');
 
-        const isInclusive = (db.prepare("SELECT value FROM settings WHERE key = 'gst_inclusive'").get()?.value || '1') === '1';
+        const isInclusive = (db.prepare("SELECT value FROM settings WHERE key = 'gst_inclusive'").get()?.value || '0') === '1';
+
+        const defaultGstRate = parseFloat(db.prepare("SELECT value FROM settings WHERE key = 'default_gst_rate'").get()?.value || '5');
 
         const processedItems = items.map(item => {
           const qty = parseFloat(item.quantity) || 1;
           const price = parseFloat(item.price);
-          const gstRate = parseFloat(item.gst_rate !== undefined ? item.gst_rate : 5);
+          const gstRate = (item.gst_rate !== undefined && item.gst_rate !== null && item.gst_rate !== '') ? parseFloat(item.gst_rate) : defaultGstRate;
           const lineTotal = price * qty;
           let taxableAmount, gstAmount;
 
@@ -1277,11 +1435,11 @@
         if (user_id) { where.push("user_id = ?"); params.push(user_id); }
         if (payment_mode) { where.push("payment_mode = ?"); params.push(payment_mode); }
         if (order_type) { where.push("order_type = ?"); params.push(order_type); }
-        if (phone && phone.trim()) { where.push("customer_phone LIKE ?"); params.push(`%${phone.trim()}%`); }
-        if (search && search.trim()) {
-          where.push("(customer_phone LIKE ? OR customer_name LIKE ? OR order_no LIKE ?)");
-          const term = `%${search.trim()}%`;
-          params.push(term, term, term);
+        const queryTerm = (search && search.trim()) || (phone && phone.trim()) || '';
+        if (queryTerm) {
+          where.push("(order_no LIKE ? OR customer_phone LIKE ? OR customer_name LIKE ? OR customer_gstin LIKE ?)");
+          const term = `%${queryTerm}%`;
+          params.push(term, term, term, term);
         }
 
         const countParams = [...params];
@@ -1715,19 +1873,74 @@
 
     // ── Printing ──────────────────────────────────────────────────
     print: {
-      getPrinters: apiCall(async () => ['System Default / Bluetooth']),
+      getPrinters: apiCall(async () => {
+        const printers = [];
+        // Read directly paired Bluetooth printers from Android native bridge
+        if (window.AndroidPrinter && typeof window.AndroidPrinter.getBluetoothPrinters === 'function') {
+          try {
+            const raw = window.AndroidPrinter.getBluetoothPrinters();
+            const list = JSON.parse(raw || '[]');
+            list.forEach(p => {
+              printers.push({
+                name: p.address || p.name,
+                displayName: `📱 Bluetooth: ${p.name || 'Printer'} (${p.address})`,
+                isDefault: false,
+                isBluetooth: true,
+                address: p.address
+              });
+            });
+          } catch (e) {
+            console.warn('[PrintAPI] Error listing bluetooth printers:', e);
+          }
+        }
+        // Always include auto-detect / system default option
+        printers.unshift({
+          name: '',
+          displayName: 'Auto-Detect Paired Bluetooth / System Default',
+          isDefault: printers.length <= 1
+        });
+        return printers;
+      }),
       getPreview: apiCall(async (orderData, settings, type) => generateReceiptHtml(orderData, settings)),
-      receipt: apiCall(async (orderData, settings) => {
-        const html = generateReceiptHtml(orderData, settings);
-        const jobName = `Receipt_${orderData.order_no || Date.now()}`;
+      receipt: apiCall(async (orderData, settings = {}) => {
+        const s = settings || {};
+        const isDirectSilent = s.silent_print !== '0'; // default 1 (Instant Silent Direct Print)
+        const targetPrinter = s.printer_device || '';
 
-        // 1. Android Native PrintManager Bridge (works with Bluetooth, Thermal, USB & System Printers)
+        // 1. Android Direct Native Bluetooth Thermal Print (Zero dialogs, no 3rd-party apps like RawBT)
+        if (window.AndroidPrinter && typeof window.AndroidPrinter.printBluetooth === 'function' && isDirectSilent) {
+          try {
+            const resJson = window.AndroidPrinter.printBluetooth(
+              targetPrinter,
+              JSON.stringify(orderData),
+              JSON.stringify(s)
+            );
+            const res = JSON.parse(resJson || '{}');
+            if (res.success) {
+              if (window.App && typeof window.App.showToast === 'function') {
+                window.App.showToast(res.message || 'Printed directly via Bluetooth!', 'success');
+              }
+              return true;
+            } else {
+              console.warn('[DirectBluetoothPrint] Not successful:', res.error);
+              if (window.App && typeof window.App.showToast === 'function') {
+                window.App.showToast(res.error, 'warning');
+              }
+            }
+          } catch (btErr) {
+            console.error('[DirectBluetoothPrint] Exception:', btErr);
+          }
+        }
+
+        // 2. Android Native PrintManager Bridge (fallback or when user chose "Show System Dialog")
+        const html = generateReceiptHtml(orderData, s);
+        const jobName = `Receipt_${orderData.order_no || Date.now()}`;
         if (window.AndroidPrinter && typeof window.AndroidPrinter.printHtml === 'function') {
           window.AndroidPrinter.printHtml(html, jobName);
           return true;
         }
 
-        // 2. Browser fallback (iframe print)
+        // 3. Browser fallback (iframe print)
         const printFrame = document.createElement('iframe');
         printFrame.style.position = 'fixed';
         printFrame.style.right = '0';
@@ -2220,8 +2433,27 @@
         }
         localStorage.setItem('gdrive_backup_schedule', JSON.stringify(sched));
         setupAutoBackupScheduler();
-        setTimeout(runScheduledBackupCheck, 1000);
+        setTimeout(async () => {
+          await runScheduledBackupCheck();
+          await runScheduledRestoreCheck(false);
+        }, 1000);
         return true;
+      }),
+
+      syncFromDriveNow: apiCall(async () => {
+        return await runScheduledRestoreCheck(true);
+      }),
+
+      getAutoRestoreStatus: apiCall(async () => {
+        const enabledRow = db ? db.prepare("SELECT value FROM settings WHERE key = 'auto_restore_enabled'").get() : null;
+        const freqRow = db ? db.prepare("SELECT value FROM settings WHERE key = 'auto_restore_frequency'").get() : null;
+        return {
+          enabled: enabledRow ? enabledRow.value === '1' : false,
+          frequency: freqRow ? freqRow.value : 'every_4_hours',
+          lastAutoRestore: localStorage.getItem('gdrive_last_auto_restore') || null,
+          lastRestoredBackupId: localStorage.getItem('gdrive_last_restored_backup_id') || null,
+          lastRestoredBackupName: localStorage.getItem('gdrive_last_restored_backup_name') || null
+        };
       }),
 
       onBackupCompleted: () => () => {},

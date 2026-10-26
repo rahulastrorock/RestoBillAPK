@@ -1583,7 +1583,11 @@ window.App = {
 
     if (btnWhatsApp) {
       btnWhatsApp.onclick = () => {
-        this.shareOrderOnWhatsApp(orderData);
+        if (orderData.customer_phone) {
+          this.openWhatsAppDirectChat(orderData, orderData.customer_phone);
+        } else {
+          this.openShareBillModal(orderData, 'whatsapp');
+        }
       };
     }
 
@@ -1944,59 +1948,83 @@ window.App = {
     return false;
   },
 
+  openWhatsAppDirectChat(order, targetPhone = null) {
+    if (!order) return;
+    const phone = targetPhone || order.customer_phone;
+    const cleanPhone = phone ? String(phone).replace(/[^\d]/g, '') : '';
+    if (!cleanPhone) {
+      this.openShareBillModal(order, 'whatsapp');
+      return;
+    }
+    const formattedPhone = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
+    const billText = this.generateOrderBillText(order);
+
+    // 1. Android Native Bridge direct launch to customer's WhatsApp chat
+    if (window.AndroidAppBridge && typeof window.AndroidAppBridge.openWhatsApp === 'function') {
+      window.AndroidAppBridge.openWhatsApp(formattedPhone, billText);
+      this.showToast(`Opening WhatsApp chat for +${formattedPhone}...`, 'success');
+      return;
+    }
+
+    // 2. Direct deep link & web link fallback
+    const waDeepLink = `whatsapp://send?phone=${formattedPhone}&text=${encodeURIComponent(billText)}`;
+    const waWebLink = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(billText)}`;
+    try {
+      window.location.href = waDeepLink;
+      setTimeout(() => {
+        window.open(waWebLink, '_blank');
+      }, 1200);
+    } catch (e) {
+      window.open(waWebLink, '_blank');
+    }
+    this.showToast(`Opening WhatsApp chat for +${formattedPhone}...`, 'success');
+  },
+
   async shareOrderOnWhatsApp(order, targetPhone = null, shareAsPdf = true) {
     if (!order) return;
     const phone = targetPhone || order.customer_phone;
     const cleanPhone = phone ? String(phone).replace(/[^\d]/g, '') : '';
     const formattedPhone = cleanPhone.length === 10 ? '91' + cleanPhone : cleanPhone;
     const filename = `RestoBill_Invoice_${order.order_no || order.id}.pdf`;
+    const billText = this.generateOrderBillText(order);
+
+    if (!formattedPhone) {
+      this.openShareBillModal(order, 'whatsapp');
+      return;
+    }
 
     if (shareAsPdf) {
       try {
         const pdfDoc = this.generateOrderPdfDoc(order, this.settings);
         const pdfBlob = pdfDoc.output('blob');
 
-        // Copy phone to clipboard so user can immediately search/paste in WhatsApp
-        if (formattedPhone) {
-          try {
-            await navigator.clipboard.writeText(formattedPhone);
-            this.showToast(`Customer phone (+${formattedPhone}) copied! Select WhatsApp to send PDF bill.`, 'success', 5000);
-          } catch (e) {
-            this.showToast(`Select WhatsApp to send PDF bill for Order #${order.order_no}`, 'info', 4000);
-          }
-        } else {
-          this.showToast(`Select WhatsApp to send PDF bill for Order #${order.order_no}`, 'info', 4000);
+        // Check if Android Native bridge can send PDF with direct customer JID targeting
+        if (window.AndroidAppBridge && typeof window.AndroidAppBridge.openWhatsAppWithPdf === 'function') {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const base64Data = reader.result.split(',')[1];
+            window.AndroidAppBridge.openWhatsAppWithPdf(formattedPhone, billText, base64Data, filename);
+            this.showToast(`Opening WhatsApp for +${formattedPhone}...`, 'success');
+          };
+          reader.readAsDataURL(pdfBlob);
+          return;
         }
 
         const shared = await this.shareFileNativeOrWeb({
           filename: filename,
           blob: pdfBlob,
           title: `Bill Invoice #${order.order_no}`,
-          text: `Invoice #${order.order_no} for ${order.customer_name || 'Customer'} from ${this.settings?.restaurant_name || 'RestoBill'}`,
+          text: billText,
           dialogTitle: 'Send Bill PDF via WhatsApp / Apps'
         });
-
-        // Fallback for desktop browser: download file and open web WhatsApp
-        if (!shared && formattedPhone) {
-          const msg = `Dear Customer, please find attached the PDF invoice for your order #${order.order_no} from ${this.settings?.restaurant_name || 'RestoBill'}.`;
-          window.open(`https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(msg)}`, '_blank');
-        }
-        return;
+        if (shared) return;
       } catch (pdfErr) {
-        console.error('[WhatsApp Share] PDF generation failed:', pdfErr);
-        this.showToast('Could not generate PDF: ' + pdfErr.message, 'warning');
+        console.warn('[WhatsApp Share] PDF generation failed:', pdfErr);
       }
     }
 
-    // Plain text fallback
-    if (!formattedPhone) {
-      this.openShareBillModal(order, 'whatsapp');
-      return;
-    }
-    const billText = this.generateOrderBillText(order);
-    const whatsappUrl = `https://api.whatsapp.com/send?phone=${formattedPhone}&text=${encodeURIComponent(billText)}`;
-    window.open(whatsappUrl, '_blank');
-    this.showToast(`Opening WhatsApp for +${formattedPhone}...`, 'success');
+    // Open direct WhatsApp chat with customer
+    this.openWhatsAppDirectChat(order, formattedPhone);
   },
 
   async shareOrderViaEmail(order, targetEmail = null, shareAsPdf = true) {
@@ -2086,14 +2114,14 @@ window.App = {
               <input type="tel" id="share-modal-phone" class="input-sm" style="width:100%;font-size:14px;font-weight:600;" placeholder="Enter 10-digit mobile number..." value="${initialPhone}">
             </div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
-              <button type="button" class="btn btn-sm btn-primary" id="btn-share-modal-whatsapp-pdf" style="background:#22c55e;border-color:#22c55e;flex:1;min-width:180px;font-weight:700;">
-                📎 Attach & Send PDF Bill ➔
+              <button type="button" class="btn btn-sm btn-primary" id="btn-share-modal-whatsapp-direct" style="background:#22c55e;border-color:#22c55e;flex:1;min-width:180px;font-weight:700;">
+                💬 Open WhatsApp Chat & Send Bill ➔
               </button>
-              <button type="button" class="btn btn-sm btn-outline" id="btn-share-modal-download-pdf" style="border-color:#22c55e;color:#22c55e;">
+              <button type="button" class="btn btn-sm btn-outline" id="btn-share-modal-whatsapp-pdf" style="border-color:#22c55e;color:#22c55e;font-weight:600;">
+                📎 Attach PDF Bill
+              </button>
+              <button type="button" class="btn btn-sm btn-outline" id="btn-share-modal-download-pdf" style="border-color:var(--border-color);color:var(--text-secondary);">
                 📥 Download PDF
-              </button>
-              <button type="button" class="btn btn-sm btn-outline" id="btn-share-modal-whatsapp-text" style="color:var(--text-muted);font-size:11px;" title="Send traditional plain text receipt">
-                💬 Text Only
               </button>
             </div>
           </div>
@@ -2141,32 +2169,48 @@ window.App = {
     setTimeout(() => {
       const phoneInput = document.getElementById('share-modal-phone');
       const emailInput = document.getElementById('share-modal-email');
+      const sendWaDirectBtn = document.getElementById('btn-share-modal-whatsapp-direct');
       const sendWaPdfBtn = document.getElementById('btn-share-modal-whatsapp-pdf');
-      const sendWaTextBtn = document.getElementById('btn-share-modal-whatsapp-text');
       const downloadPdfBtn = document.getElementById('btn-share-modal-download-pdf');
       const sendEmailPdfBtn = document.getElementById('btn-share-modal-email-pdf');
       const sendEmailTextBtn = document.getElementById('btn-share-modal-email-text');
       const copyBtn = document.getElementById('btn-share-copy-text');
 
+      const updateWaDirectLabel = () => {
+        const raw = phoneInput ? phoneInput.value.trim() : '';
+        const clean = raw.replace(/[^\d]/g, '');
+        if (clean.length >= 10 && sendWaDirectBtn) {
+          const displayNum = clean.length === 10 ? '+91 ' + clean : '+' + clean;
+          sendWaDirectBtn.innerHTML = `💬 Open WhatsApp (${displayNum}) ➔`;
+        } else if (sendWaDirectBtn) {
+          sendWaDirectBtn.innerHTML = `💬 Open WhatsApp Chat & Send Bill ➔`;
+        }
+      };
+
+      if (phoneInput) {
+        phoneInput.addEventListener('input', updateWaDirectLabel);
+        updateWaDirectLabel();
+      }
+
       if (defaultFocus === 'whatsapp' && phoneInput) phoneInput.focus();
       if (defaultFocus === 'email' && emailInput) emailInput.focus();
+
+      if (sendWaDirectBtn) {
+        sendWaDirectBtn.onclick = () => {
+          const phone = phoneInput ? phoneInput.value.trim() : '';
+          if (!phone) {
+            this.showToast('Please enter customer mobile number', 'warning');
+            phoneInput?.focus();
+            return;
+          }
+          this.openWhatsAppDirectChat(order, phone);
+        };
+      }
 
       if (sendWaPdfBtn) {
         sendWaPdfBtn.onclick = () => {
           const phone = phoneInput ? phoneInput.value.trim() : '';
           this.shareOrderOnWhatsApp(order, phone, true);
-        };
-      }
-
-      if (sendWaTextBtn) {
-        sendWaTextBtn.onclick = () => {
-          const phone = phoneInput ? phoneInput.value.trim() : '';
-          if (!phone) {
-            this.showToast('Please enter a phone number', 'warning');
-            phoneInput?.focus();
-            return;
-          }
-          this.shareOrderOnWhatsApp(order, phone, false);
         };
       }
 

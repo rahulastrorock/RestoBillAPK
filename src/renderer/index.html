@@ -269,6 +269,9 @@
                     <!-- Dynamic Customer Autocomplete Dropdown -->
                     <div class="customer-dropdown-menu hidden" id="pos-customer-dropdown"></div>
                   </div>
+                  <div class="pos-gstin-row" id="pos-gstin-row">
+                    <input type="text" id="pos-customer-gstin" placeholder="Customer GSTIN (Direct / Optional)" class="input-sm" maxlength="15" autocomplete="off" spellcheck="false" title="Direct Customer GSTIN (saves to bill without needing to add customer to directory)">
+                  </div>
                 </div>
               </div>
 
@@ -283,7 +286,7 @@
 
               <div class="order-summary">
                 <div class="summary-row">
-                  <span>Subtotal</span>
+                  <span id="pos-subtotal-label">Subtotal</span>
                   <span id="order-subtotal">₹0.00</span>
                 </div>
                 <div class="summary-row discount-row" id="discount-row" style="display:none;">
@@ -291,11 +294,11 @@
                   <span id="order-discount">-₹0.00</span>
                 </div>
                 <div class="summary-row tax-row">
-                  <span>CGST</span>
+                  <span id="pos-cgst-label">CGST (2.5%)</span>
                   <span id="order-cgst">₹0.00</span>
                 </div>
                 <div class="summary-row tax-row">
-                  <span>SGST</span>
+                  <span id="pos-sgst-label">SGST (2.5%)</span>
                   <span id="order-sgst">₹0.00</span>
                 </div>
                 <div class="summary-row total-row">
@@ -436,7 +439,7 @@
             <div class="orders-search-row">
               <div class="orders-phone-search-wrap">
                 <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16" class="orders-search-icon"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"/></svg>
-                <input type="text" id="orders-search-phone" class="input-sm orders-search-input" placeholder="Search customer mobile no... (or bill #)" autocomplete="off">
+                <input type="text" id="orders-search-phone" class="input-sm orders-search-input" placeholder="Search bill / invoice #, customer name, mobile or GSTIN..." autocomplete="off">
               </div>
             </div>
 
@@ -708,8 +711,8 @@
               <button class="settings-tab active" data-settings-tab="restaurant">🏪 Restaurant</button>
               <button class="settings-tab" data-settings-tab="billing">🧾 Billing & GST</button>
               <button class="settings-tab" data-settings-tab="printer">🖨️ Printer</button>
-              <button class="settings-tab" data-settings-tab="backup">☁️ Cloud Backup</button>
-              <button class="settings-tab" data-settings-tab="metrics">📊 Cloud Metrics</button>
+              <button class="settings-tab" data-settings-tab="backup">☁️ Cloud Backup 🔒</button>
+              <button class="settings-tab" data-settings-tab="metrics">📊 Cloud Metrics 🔒</button>
               <button class="settings-tab" data-settings-tab="about">ℹ️ About</button>
             </div>
             <div class="settings-content" id="settings-content">
