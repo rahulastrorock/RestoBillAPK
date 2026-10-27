@@ -91,31 +91,31 @@ public class BluetoothPrinterHelper {
 
             // Header - Restaurant Name (Double Height/Width, Bold, Centered)
             String restaurantName = settings != null ? settings.optString("restaurant_name", "RestoBill Restaurant") : "RestoBill Restaurant";
-            out.write(new byte[]{0x1B, 0x61, 0x01}); // Center align
-            out.write(new byte[]{0x1B, 0x45, 0x01}); // Bold on
-            out.write(new byte[]{0x1D, 0x21, 0x11}); // Double width & height
-            out.write((sanitizeText(restaurantName) + "\n").getBytes(StandardCharsets.US_ASCII));
-
-            // Reset font formatting
-            out.write(new byte[]{0x1D, 0x21, 0x00}); // Normal size
-            out.write(new byte[]{0x1B, 0x45, 0x00}); // Bold off
+            if (isOptionEnabled(settings, "print_show_restaurant_name", true) && !restaurantName.isEmpty()) {
+                out.write(new byte[]{0x1B, 0x61, 0x01}); // Center align
+                out.write(new byte[]{0x1B, 0x45, 0x01}); // Bold on
+                out.write(new byte[]{0x1D, 0x21, 0x11}); // Double width & height
+                out.write((sanitizeText(restaurantName) + "\n").getBytes(StandardCharsets.US_ASCII));
+                out.write(new byte[]{0x1D, 0x21, 0x00}); // Normal size
+                out.write(new byte[]{0x1B, 0x45, 0x00}); // Bold off
+            }
 
             // Restaurant Details
             if (settings != null) {
                 String address = settings.optString("restaurant_address", "").trim();
-                if (!address.isEmpty()) {
+                if (isOptionEnabled(settings, "print_show_address", true) && !address.isEmpty()) {
                     out.write((sanitizeText(address) + "\n").getBytes(StandardCharsets.US_ASCII));
                 }
                 String phone = settings.optString("restaurant_phone", "").trim();
-                if (!phone.isEmpty()) {
+                if (isOptionEnabled(settings, "print_show_phone", true) && !phone.isEmpty()) {
                     out.write(("Phone: " + sanitizeText(phone) + "\n").getBytes(StandardCharsets.US_ASCII));
                 }
                 String gstin = settings.optString("gstin", "").trim();
-                if (!gstin.isEmpty()) {
+                if (isOptionEnabled(settings, "print_show_gstin", true) && !gstin.isEmpty()) {
                     out.write(("GSTIN: " + sanitizeText(gstin) + "\n").getBytes(StandardCharsets.US_ASCII));
                 }
                 String fssai = settings.optString("fssai_no", "").trim();
-                if (!fssai.isEmpty()) {
+                if (isOptionEnabled(settings, "print_show_fssai", true) && !fssai.isEmpty()) {
                     out.write(("FSSAI: " + sanitizeText(fssai) + "\n").getBytes(StandardCharsets.US_ASCII));
                 }
 
@@ -134,43 +134,59 @@ public class BluetoothPrinterHelper {
 
             // Bill Information
             String orderNo = order.optString("order_no", "").trim();
-            if (!orderNo.isEmpty()) {
+            if (isOptionEnabled(settings, "print_show_order_no", true) && !orderNo.isEmpty()) {
                 out.write(("Bill No: " + orderNo + "\n").getBytes(StandardCharsets.US_ASCII));
             }
 
-            String createdAt = order.optString("created_at", "");
-            String dateFormatted = formatDateTime(createdAt);
-            out.write(("Date: " + dateFormatted + "\n").getBytes(StandardCharsets.US_ASCII));
+            if (isOptionEnabled(settings, "print_show_date", true)) {
+                String createdAt = order.optString("created_at", "");
+                String dateFormatted = formatDateTime(createdAt);
+                out.write(("Date: " + dateFormatted + "\n").getBytes(StandardCharsets.US_ASCII));
+            }
 
             String tableNo = order.optString("table_no", "").trim();
-            if (!tableNo.isEmpty()) {
+            if (isOptionEnabled(settings, "print_show_table", true) && !tableNo.isEmpty()) {
                 out.write(("Table: " + tableNo + "\n").getBytes(StandardCharsets.US_ASCII));
             }
 
-            String orderType = order.optString("order_type", "dine_in").replace("_", " ").toUpperCase();
-            out.write(("Type: " + orderType + "\n").getBytes(StandardCharsets.US_ASCII));
+            if (isOptionEnabled(settings, "print_show_order_type", true)) {
+                String orderType = order.optString("order_type", "dine_in").replace("_", " ").toUpperCase();
+                out.write(("Type: " + orderType + "\n").getBytes(StandardCharsets.US_ASCII));
+            }
+
+            String cashier = order.optString("user_name", "").trim();
+            if (isOptionEnabled(settings, "print_show_cashier", true) && !cashier.isEmpty()) {
+                out.write(("Cashier: " + sanitizeText(cashier) + "\n").getBytes(StandardCharsets.US_ASCII));
+            }
 
             String custName = order.optString("customer_name", "").trim();
             String custPhone = order.optString("customer_phone", "").trim();
             String custGstin = order.optString("customer_gstin", "").trim();
-            if (!custName.isEmpty()) {
+            if (isOptionEnabled(settings, "print_show_customer", true) && (!custName.isEmpty() || !custPhone.isEmpty())) {
                 String custLine = "Customer: " + custName;
                 if (!custPhone.isEmpty()) custLine += " (" + custPhone + ")";
                 out.write((sanitizeText(custLine) + "\n").getBytes(StandardCharsets.US_ASCII));
             }
-            if (!custGstin.isEmpty()) {
+            if (isOptionEnabled(settings, "print_show_customer_gstin", true) && !custGstin.isEmpty()) {
                 out.write(("Cust GSTIN: " + sanitizeText(custGstin) + "\n").getBytes(StandardCharsets.US_ASCII));
             }
 
             // Column Header
+            boolean showRate = isOptionEnabled(settings, "print_show_rate", true);
             out.write((repeatChar('-', maxCols) + "\n").getBytes(StandardCharsets.US_ASCII));
             out.write(new byte[]{0x1B, 0x45, 0x01}); // Bold on
             if (maxCols == 32) {
-                // 58mm: Item (14) Qty (4) Rate (6) Amt (7) + 1 space = 32
-                out.write(String.format(Locale.US, "%-14s %3s %6s %7s\n", "Item", "Qty", "Rate", "Amt").getBytes(StandardCharsets.US_ASCII));
+                if (showRate) {
+                    out.write(String.format(Locale.US, "%-14s %3s %6s %7s\n", "Item", "Qty", "Rate", "Amt").getBytes(StandardCharsets.US_ASCII));
+                } else {
+                    out.write(String.format(Locale.US, "%-20s %4s %6s\n", "Item", "Qty", "Amt").getBytes(StandardCharsets.US_ASCII));
+                }
             } else {
-                // 80mm: Item (26) Qty (4) Rate (7) Amt (9) + 2 spaces = 48
-                out.write(String.format(Locale.US, "%-26s %4s %7s %9s\n", "Item", "Qty", "Rate", "Amt").getBytes(StandardCharsets.US_ASCII));
+                if (showRate) {
+                    out.write(String.format(Locale.US, "%-26s %4s %7s %9s\n", "Item", "Qty", "Rate", "Amt").getBytes(StandardCharsets.US_ASCII));
+                } else {
+                    out.write(String.format(Locale.US, "%-35s %4s %7s\n", "Item", "Qty", "Amt").getBytes(StandardCharsets.US_ASCII));
+                }
             }
             out.write(new byte[]{0x1B, 0x45, 0x00}); // Bold off
             out.write((repeatChar('-', maxCols) + "\n").getBytes(StandardCharsets.US_ASCII));
@@ -178,7 +194,7 @@ public class BluetoothPrinterHelper {
             // Order Items
             JSONArray items = order.optJSONArray("items");
             if (items != null) {
-                int nameWidth = (maxCols == 32) ? 14 : 26;
+                int nameWidth = (maxCols == 32) ? (showRate ? 14 : 20) : (showRate ? 26 : 35);
                 for (int i = 0; i < items.length(); i++) {
                     JSONObject itm = items.getJSONObject(i);
                     String rawName = itm.optString("name", "Item");
@@ -194,18 +210,33 @@ public class BluetoothPrinterHelper {
 
                     if (itemName.length() <= nameWidth) {
                         if (maxCols == 32) {
-                            out.write(String.format(Locale.US, "%-14s %3s %6s %7s\n", itemName, qtyStr, priceStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            if (showRate) {
+                                out.write(String.format(Locale.US, "%-14s %3s %6s %7s\n", itemName, qtyStr, priceStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            } else {
+                                out.write(String.format(Locale.US, "%-20s %4s %6s\n", itemName, qtyStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            }
                         } else {
-                            out.write(String.format(Locale.US, "%-26s %4s %7s %9s\n", itemName, qtyStr, priceStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            if (showRate) {
+                                out.write(String.format(Locale.US, "%-26s %4s %7s %9s\n", itemName, qtyStr, priceStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            } else {
+                                out.write(String.format(Locale.US, "%-35s %4s %7s\n", itemName, qtyStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            }
                         }
                     } else {
-                        // Word wrap long item name cleanly
                         String firstChunk = itemName.substring(0, nameWidth);
                         String rest = itemName.substring(nameWidth);
                         if (maxCols == 32) {
-                            out.write(String.format(Locale.US, "%-14s %3s %6s %7s\n", firstChunk, qtyStr, priceStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            if (showRate) {
+                                out.write(String.format(Locale.US, "%-14s %3s %6s %7s\n", firstChunk, qtyStr, priceStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            } else {
+                                out.write(String.format(Locale.US, "%-20s %4s %6s\n", firstChunk, qtyStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            }
                         } else {
-                            out.write(String.format(Locale.US, "%-26s %4s %7s %9s\n", firstChunk, qtyStr, priceStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            if (showRate) {
+                                out.write(String.format(Locale.US, "%-26s %4s %7s %9s\n", firstChunk, qtyStr, priceStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            } else {
+                                out.write(String.format(Locale.US, "%-35s %4s %7s\n", firstChunk, qtyStr, totalStr).getBytes(StandardCharsets.US_ASCII));
+                            }
                         }
                         while (rest.length() > 0) {
                             int take = Math.min(rest.length(), nameWidth);
@@ -219,12 +250,14 @@ public class BluetoothPrinterHelper {
             out.write((repeatChar('-', maxCols) + "\n").getBytes(StandardCharsets.US_ASCII));
 
             // Subtotal / Taxable Value
-            boolean isInclusive = "1".equals(settings != null ? settings.optString("gst_inclusive", "0") : "0");
-            double subtotal = order.optDouble("subtotal", 0);
-            double taxable = order.optDouble("taxable_amount", 0);
-            double displaySubtotal = (isInclusive && taxable > 0) ? taxable : subtotal;
-            String subtotalLabel = isInclusive ? "Taxable Amt:" : "Subtotal:";
-            out.write(formatTwoColumn(subtotalLabel, String.format(Locale.US, "%.2f", displaySubtotal), maxCols).getBytes(StandardCharsets.US_ASCII));
+            if (isOptionEnabled(settings, "print_show_subtotal", true)) {
+                boolean isInclusive = "1".equals(settings != null ? settings.optString("gst_inclusive", "0") : "0");
+                double subtotal = order.optDouble("subtotal", 0);
+                double taxable = order.optDouble("taxable_amount", 0);
+                double displaySubtotal = (isInclusive && taxable > 0) ? taxable : subtotal;
+                String subtotalLabel = isInclusive ? "Taxable Amt:" : "Subtotal:";
+                out.write(formatTwoColumn(subtotalLabel, String.format(Locale.US, "%.2f", displaySubtotal), maxCols).getBytes(StandardCharsets.US_ASCII));
+            }
 
             // Discount
             double discount = order.optDouble("discount_amount", 0);
@@ -233,27 +266,29 @@ public class BluetoothPrinterHelper {
             }
 
             // CGST / SGST
-            double defaultGst = 5.0;
-            if (settings != null) {
-                try {
-                    defaultGst = Double.parseDouble(settings.optString("default_gst_rate", "5.0"));
-                } catch (Exception ignored) {
-                    defaultGst = 5.0;
+            if (isOptionEnabled(settings, "print_show_tax_breakdown", true)) {
+                double defaultGst = 5.0;
+                if (settings != null) {
+                    try {
+                        defaultGst = Double.parseDouble(settings.optString("default_gst_rate", "5.0"));
+                    } catch (Exception ignored) {
+                        defaultGst = 5.0;
+                    }
                 }
-            }
-            double halfRate = defaultGst / 2.0;
-            String rateSuffix = (halfRate == (long) halfRate)
-                ? String.format(Locale.US, " (%.0f%%):", halfRate)
-                : String.format(Locale.US, " (%.1f%%):", halfRate);
+                double halfRate = defaultGst / 2.0;
+                String rateSuffix = (halfRate == (long) halfRate)
+                    ? String.format(Locale.US, " (%.0f%%):", halfRate)
+                    : String.format(Locale.US, " (%.1f%%):", halfRate);
 
-            double cgst = order.optDouble("cgst", 0);
-            if (cgst > 0) {
-                out.write(formatTwoColumn("CGST" + rateSuffix, String.format(Locale.US, "%.2f", cgst), maxCols).getBytes(StandardCharsets.US_ASCII));
-            }
+                double cgst = order.optDouble("cgst", 0);
+                if (cgst > 0) {
+                    out.write(formatTwoColumn("CGST" + rateSuffix, String.format(Locale.US, "%.2f", cgst), maxCols).getBytes(StandardCharsets.US_ASCII));
+                }
 
-            double sgst = order.optDouble("sgst", 0);
-            if (sgst > 0) {
-                out.write(formatTwoColumn("SGST" + rateSuffix, String.format(Locale.US, "%.2f", sgst), maxCols).getBytes(StandardCharsets.US_ASCII));
+                double sgst = order.optDouble("sgst", 0);
+                if (sgst > 0) {
+                    out.write(formatTwoColumn("SGST" + rateSuffix, String.format(Locale.US, "%.2f", sgst), maxCols).getBytes(StandardCharsets.US_ASCII));
+                }
             }
 
             // Round off
@@ -273,12 +308,14 @@ public class BluetoothPrinterHelper {
             out.write(new byte[]{0x1B, 0x45, 0x00}); // Bold off
 
             // Payment Mode
-            String paymentMode = order.optString("payment_mode", "cash").toUpperCase();
-            out.write(formatTwoColumn("Payment Mode:", paymentMode, maxCols).getBytes(StandardCharsets.US_ASCII));
+            if (isOptionEnabled(settings, "print_show_payment_mode", true)) {
+                String paymentMode = order.optString("payment_mode", "cash").toUpperCase();
+                out.write(formatTwoColumn("Payment Mode:", paymentMode, maxCols).getBytes(StandardCharsets.US_ASCII));
+            }
 
             // Notes / Special Instructions
             String notes = order.optString("notes", "").trim();
-            if (!notes.isEmpty()) {
+            if (isOptionEnabled(settings, "print_show_notes", true) && !notes.isEmpty()) {
                 out.write((repeatChar('-', maxCols) + "\n").getBytes(StandardCharsets.US_ASCII));
                 out.write(("Note: " + sanitizeText(notes) + "\n").getBytes(StandardCharsets.US_ASCII));
             }
@@ -286,16 +323,21 @@ public class BluetoothPrinterHelper {
             out.write((repeatChar('-', maxCols) + "\n").getBytes(StandardCharsets.US_ASCII));
 
             // Footer
-            out.write(new byte[]{0x1B, 0x61, 0x01}); // Center align
-            String footerText = settings != null ? settings.optString("footer_text", "Thank you! Visit again!") : "Thank you! Visit again!";
-            out.write((sanitizeText(footerText) + "\n").getBytes(StandardCharsets.US_ASCII));
+            if (isOptionEnabled(settings, "print_show_footer", true)) {
+                out.write(new byte[]{0x1B, 0x61, 0x01}); // Center align
+                String footerText = settings != null ? settings.optString("footer_text", "Thank you! Visit again!") : "Thank you! Visit again!";
+                out.write((sanitizeText(footerText) + "\n").getBytes(StandardCharsets.US_ASCII));
+            }
 
-            if (settings != null) {
+            if (settings != null && isOptionEnabled(settings, "print_show_terms", false)) {
                 String terms = settings.optString("terms_text", "").trim();
-                boolean showTerms = "1".equals(settings.optString("print_show_terms")) || settings.optBoolean("print_show_terms", false);
-                if (showTerms && !terms.isEmpty()) {
+                if (!terms.isEmpty()) {
                     out.write((sanitizeText(terms) + "\n").getBytes(StandardCharsets.US_ASCII));
                 }
+            }
+
+            if (isOptionEnabled(settings, "print_show_branding", true)) {
+                out.write("Made with love by RestoBill\n".getBytes(StandardCharsets.US_ASCII));
             }
 
             // Paper Feed & Cut
@@ -464,6 +506,12 @@ public class BluetoothPrinterHelper {
         } catch (Exception e) {
             return "{\"success\":" + success + ",\"message\":\"" + message + "\"}";
         }
+    }
+
+    private static boolean isOptionEnabled(JSONObject settings, String key, boolean defaultVal) {
+        if (settings == null || !settings.has(key)) return defaultVal;
+        String val = settings.optString(key, defaultVal ? "1" : "0");
+        return "1".equals(val) || "true".equalsIgnoreCase(val) || settings.optBoolean(key, defaultVal);
     }
 
     private static String sanitizeText(String text) {

@@ -12,19 +12,28 @@ window.SupabaseSync = {
 
   cleanSupabaseUrl(url) {
     if (!url) return '';
-    let clean = url.trim();
+    let clean = url.trim().replace(/^['"]+|['"]+$/g, '');
     // If user pasted dashboard URL like https://supabase.com/dashboard/project/ujjkbqimycboljtbcxno/...
     const dashboardMatch = clean.match(/project\/([a-z0-9_-]+)/i);
     if (dashboardMatch) {
       return `https://${dashboardMatch[1]}.supabase.co`;
     }
-    // If user pasted just the 20-character project ref (e.g. ujjkbqimycboljtbcxno)
-    if (/^[a-z0-9]{20}$/i.test(clean)) {
-      return `https://${clean}.supabase.co`;
+    // If user pasted just the 20-character project ref
+    const refMatch = clean.match(/^([a-z0-9]{20})$/i);
+    if (refMatch) {
+      return `https://${refMatch[1]}.supabase.co`;
+    }
+    // Extract 20-character project ref from domain if present
+    const domainRefMatch = clean.match(/([a-z0-9]{20})\.supabase/i);
+    if (domainRefMatch) {
+      return `https://${domainRefMatch[1]}.supabase.co`;
     }
     // Correct .com to .co if user made a typo
     if (clean.includes('.supabase.com')) {
       clean = clean.replace('.supabase.com', '.supabase.co');
+    }
+    if (clean.endsWith('.supabase')) {
+      clean = clean + '.co';
     }
     if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
       clean = 'https://' + clean;
@@ -36,11 +45,92 @@ window.SupabaseSync = {
     return clean;
   },
 
+  cleanSupabaseKey(key) {
+    if (!key) return '';
+    let clean = String(key).trim();
+    // Remove wrapping single or double quotes
+    clean = clean.replace(/^['"`]+|['"`]+$/g, '').trim();
+    // Remove leading 'Bearer ' prefix if user copied it with authorization header
+    clean = clean.replace(/^Bearer\s+/i, '').trim();
+    // Remove all whitespace, line breaks, tabs, and zero-width/non-breaking spaces
+    clean = clean.replace(/[\s\r\n\t\u200B\uFEFF\u00A0]+/g, '');
+    return clean;
+  },
+
+  inspectApiKey(cleanKey, cleanUrl) {
+    if (!cleanKey) {
+      return { valid: false, error: 'API key is empty.' };
+    }
+
+    // Check for Personal Access Token (starts with sbp_)
+    if (cleanKey.startsWith('sbp_')) {
+      return {
+        valid: false,
+        error: 'Personal Access Token Detected (starts with "sbp_").\n\nYou pasted an account-level Personal Access Token instead of the Project Anon Key.\n\n👉 How to fix:\n1. Open your Supabase Dashboard\n2. Go to Project Settings (⚙️ gear icon) > API (or Configuration > API)\n3. Under "Project API keys", copy the public "anon" key (starts with "eyJhbGci...").'
+      };
+    }
+
+    // Check if it is a JWT (format: header.payload.signature)
+    const parts = cleanKey.split('.');
+    if (parts.length === 3) {
+      try {
+        let b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        while (b64.length % 4) b64 += '=';
+        const payloadStr = atob(b64);
+        const payload = JSON.parse(payloadStr);
+
+        // Check project ref match
+        if (payload && payload.ref) {
+          const keyRef = String(payload.ref).toLowerCase();
+          const urlMatch = cleanUrl.match(/https:\/\/([a-z0-9_-]+)\.supabase\.co/i);
+          const urlRef = urlMatch ? urlMatch[1].toLowerCase() : '';
+
+          if (urlRef && keyRef !== urlRef) {
+            return {
+              valid: false,
+              error: `Project Ref Mismatch Detected!\n• Your anon key belongs to project: "${keyRef}"\n• But your Project URL is for project: "${urlRef}"\n\n👉 How to fix:\nIn Supabase, open project "${urlRef}", go to Project Settings > API, and copy the anon key for that specific project.`
+            };
+          }
+        }
+
+        // Check key role
+        if (payload && payload.role && payload.role !== 'anon' && payload.role !== 'service_role') {
+          return {
+            valid: false,
+            error: `Incorrect Key Role: The key has role "${payload.role}". You need the public "anon" key from Project Settings > API.`
+          };
+        }
+
+        // Check expiration
+        if (payload && payload.exp && (payload.exp * 1000) < Date.now()) {
+          const expDate = new Date(payload.exp * 1000).toLocaleDateString();
+          return {
+            valid: false,
+            error: `API Key Expired: This key expired on ${expDate}. Please copy the current active anon key from Project Settings > API.`
+          };
+        }
+
+        return { valid: true, payload };
+      } catch (e) {
+        // Fall through if base64 decoding fails
+      }
+    } else if (cleanKey.startsWith('sb_publishable_')) {
+      return { valid: true, isPublishable: true };
+    } else if (cleanKey.length < 50) {
+      return {
+        valid: false,
+        error: `The key you entered is only ${cleanKey.length} characters long.\nA Supabase anon key is a long JWT string (~150-250 characters starting with "eyJhbGci...").\n\nYou might have copied the JWT Secret or database password instead of the anon key.\n\n👉 Find it in: Supabase > Project Settings > API > Project API keys > anon public.`
+      };
+    }
+
+    return { valid: true };
+  },
+
   getConfig() {
     const s = window.App?.settings || {};
     return {
       url: this.cleanSupabaseUrl(s.supabase_url || ''),
-      anonKey: (s.supabase_anon_key || '').trim(),
+      anonKey: this.cleanSupabaseKey(s.supabase_anon_key || ''),
       enabled: s.supabase_enabled === '1' || s.supabase_enabled === true,
       outletName: (s.restaurant_name || 'RestoBill Outlet').trim()
     };
@@ -74,7 +164,7 @@ window.SupabaseSync = {
    */
   async testConnection(targetUrl, targetKey) {
     const cleanUrl = this.cleanSupabaseUrl(targetUrl);
-    const cleanKey = (targetKey || '').trim();
+    const cleanKey = this.cleanSupabaseKey(targetKey);
 
     if (!cleanUrl) {
       return { success: false, message: 'Please enter your Supabase Project URL' };
@@ -83,9 +173,16 @@ window.SupabaseSync = {
       return { success: false, message: 'Please enter your Supabase Public Anon Key' };
     }
 
+    // Diagnostic validation of key format and project ref matching
+    const inspection = this.inspectApiKey(cleanKey, cleanUrl);
+    if (!inspection.valid) {
+      return { success: false, message: inspection.error };
+    }
+
     try {
-      // Step 1: Check base REST endpoint to verify Project URL and Anon Key validity
-      const rootRes = await fetch(`${cleanUrl}/rest/v1/`, {
+      // Test the restobill_orders table endpoint directly with PostgREST
+      const endpoint = `${cleanUrl}/rest/v1/restobill_orders?select=id&limit=1`;
+      const res = await fetch(endpoint, {
         method: 'GET',
         headers: {
           'apikey': cleanKey,
@@ -94,42 +191,11 @@ window.SupabaseSync = {
         }
       });
 
-      if (!rootRes.ok) {
-        let rootErr = '';
-        try {
-          const rootJson = await rootRes.json();
-          rootErr = rootJson.message || rootJson.hint || JSON.stringify(rootJson);
-        } catch (e) {
-          rootErr = await rootRes.text().catch(() => '');
-        }
-
-        if (rootRes.status === 401 || rootRes.status === 403) {
-          return {
-            success: false,
-            message: `Authentication failed (Status ${rootRes.status}): Invalid anon key.\nMake sure you copied the public "anon" key from Supabase Project Settings > API > Project API keys (anon public).\n${rootErr}`
-          };
-        }
-        if (rootRes.status === 404) {
-          return {
-            success: false,
-            message: `Project URL not reachable (Status 404): ${cleanUrl}\nPlease check that the URL matches Project Settings > API > Project URL (e.g. https://xyz.supabase.co)`
-          };
-        }
-      }
-
-      // Step 2: Check restobill_orders table endpoint
-      const endpoint = `${cleanUrl}/rest/v1/restobill_orders?select=id&limit=1`;
-      const res = await fetch(endpoint, {
-        method: 'GET',
-        headers: {
-          'apikey': cleanKey,
-          'Authorization': `Bearer ${cleanKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
       if (res.ok) {
-        return { success: true, message: 'Connected successfully to Supabase! Tables and REST API are fully accessible.' };
+        return {
+          success: true,
+          message: 'Connected successfully to Supabase! Tables and REST API are fully accessible and ready for real-time telemetry.'
+        };
       }
 
       let errDetail = '';
@@ -140,28 +206,46 @@ window.SupabaseSync = {
         errDetail = await res.text().catch(() => '');
       }
 
+      // If status 404 or table not in schema cache: The credentials ARE VALID!
+      // PostgREST authenticated the anon key, but the database tables have not been created yet via SQL script.
+      if (res.status === 404 || errDetail.includes('schema cache') || errDetail.includes('does not exist') || errDetail.includes('PGRST204')) {
+        return {
+          success: true,
+          tablesPending: true,
+          message: '✓ Supabase Credentials Verified!\n\nYour Project URL and Anon Key are valid and connected.\nHowever, the RestoBill database tables have not been created yet in PostgreSQL.\n\n👉 Next Step:\n1. Click "📋 Copy SQL Script" above\n2. Open your Supabase Dashboard > SQL Editor\n3. Paste the script and click "Run"\n4. Then test connection again!'
+        };
+      }
+
+      // If Supabase gateway returned 401 or 403
       if (res.status === 401 || res.status === 403) {
+        const maskedKey = cleanKey.length > 20
+          ? `${cleanKey.substring(0, 10)}...${cleanKey.substring(cleanKey.length - 6)}`
+          : cleanKey;
+
         return {
           success: false,
-          message: `Authentication failed (Status ${res.status}). Please verify that you copied the public "anon" key from Supabase Project Settings > API.\n${errDetail}`
+          message: `Authentication Failed (Status ${res.status}): ${errDetail || 'Invalid API key'}\n\n` +
+            `Tested key: ${maskedKey}\n\n` +
+            `Please check your Supabase Dashboard:\n` +
+            `1. Open project: ${cleanUrl}\n` +
+            `2. Go to Project Settings (gear icon ⚙️) > API (or Configuration > API)\n` +
+            `3. Under "Project API keys", copy the public "anon" key (starts with "eyJhbGci...").\n` +
+            `4. Tap the 👁️ eye icon on the key input here to verify the pasted key.`
         };
       }
 
-      if (res.status === 404) {
-        return {
-          success: false,
-          message: `Table exists in PostgreSQL, but PostgREST API has not reloaded its schema cache yet (Status 404).\n${errDetail ? `Server message: ${errDetail}\n\n` : ''}Instant Fix:\nIn your Supabase Dashboard, go to Project Settings (bottom gear ⚙️) > General > scroll down and click "Restart project" (takes ~15 seconds to reboot PostgREST and register all tables).`
-        };
-      }
+      return {
+        success: false,
+        message: `Supabase returned status ${res.status}: ${errDetail}`
+      };
 
-      return { success: false, message: `Supabase returned error (${res.status}): ${errDetail}` };
     } catch (err) {
       console.error('[SupabaseSync] Test connection error:', err);
       return {
         success: false,
         message: err.message.includes('Failed to fetch')
-          ? 'Network request failed. Please check your internet connection and verify that the Project URL is correct.'
-          : `Connection failed: ${err.message}`
+          ? `Network error: Could not reach ${cleanUrl}.\nPlease check your internet connection and verify that the Project URL is correct.`
+          : `Connection error: ${err.message}`
       };
     }
   },

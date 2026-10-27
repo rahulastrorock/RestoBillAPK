@@ -52,6 +52,7 @@ window.SettingsUI = {
           localStorage.setItem('restobill_settings_tab', this.activeTab);
         } catch (e) {}
         this.syncTabButtons();
+        await this.fetchSettings();
         this.render();
       };
     });
@@ -551,6 +552,7 @@ window.SettingsUI = {
   },
 
   async renderPrinterTab(container) {
+    await this.fetchSettings();
     const s = this.settings;
     const isChecked = (val, defaultVal = true) => {
       if (val === undefined || val === null || val === '') return defaultVal;
@@ -1028,13 +1030,19 @@ window.SettingsUI = {
                   <div class="printer-preview-topbar-title">
                     <span>👁️</span>
                     <span>Live Receipt Preview</span>
+                    <span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px #22c55e;" title="Rendering live"></span>
                   </div>
-                  <span id="preview-width-badge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:var(--accent-primary-glow);color:var(--accent-primary);">
-                    ${s.printer_width === '58' ? '58mm' : '80mm'}
-                  </span>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <button type="button" id="btn-toggle-preview-source" style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:4px;border:1px solid var(--border-color);background:var(--bg-secondary);color:var(--text-secondary);cursor:pointer;display:none;align-items:center;gap:4px;" title="Switch preview order source">
+                      <span id="preview-source-label">⚡ Latest Bill</span>
+                    </button>
+                    <span id="preview-width-badge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:var(--accent-primary-glow);color:var(--accent-primary);">
+                      ${s.printer_type === 'standard' ? 'A4 Invoice' : (s.printer_width === '58' ? '58mm' : '80mm')}
+                    </span>
+                  </div>
                 </div>
 
-                <div class="printer-preview-paper-card ${s.printer_width === '58' ? 'width-58' : 'width-80'}" id="preview-paper-box">
+                <div class="printer-preview-paper-card ${s.printer_type === 'standard' ? 'width-standard' : (s.printer_width === '58' ? 'width-58' : 'width-80')}" id="preview-paper-box">
                   <iframe id="printer-live-preview-frame" class="printer-preview-iframe" sandbox="allow-same-origin allow-scripts"></iframe>
                 </div>
 
@@ -1054,36 +1062,80 @@ window.SettingsUI = {
       </div>
     `;
 
-    // Sample order used for live preview and test prints
+    // Realistic sample order for preview and test printing
+    const defaultGst = parseFloat(s.default_gst_rate || '5');
+    const isInc = s.gst_inclusive === '1';
+    const sub = 590;
+    const disc = 59;
+    const taxBase = isInc ? ((sub - disc) * 100 / (100 + defaultGst)) : (sub - disc);
+    const halfTax = Math.round((taxBase * (defaultGst / 2) / 100) * 100) / 100;
+    const grand = isInc ? (sub - disc) : Math.round(taxBase + halfTax * 2);
+
     const sampleOrder = {
       order_no: 'INV-2026-0042',
       order_type: 'dine_in',
       table_no: 'T-04',
-      user_name: 'Rahul (Cashier)',
+      user_name: window.App?.currentUser?.name || 'Rahul (Cashier)',
       customer_name: 'Vikram Sharma',
       customer_phone: '9876543210',
       customer_gstin: '07AAAAA0000A1Z5',
       created_at: new Date().toISOString(),
       items: [
-        { name: 'Paneer Butter Masala', quantity: 1, price: 280, total: 280, gst_rate: 5, hsn_code: '996331' },
-        { name: 'Butter Garlic Naan', quantity: 3, price: 50, total: 150, gst_rate: 5, hsn_code: '996331' },
-        { name: 'Jeera Rice', quantity: 1, price: 160, total: 160, gst_rate: 5, hsn_code: '996331' }
+        { name: 'Paneer Butter Masala', quantity: 1, price: 280, total: 280, gst_rate: defaultGst, hsn_code: '996331' },
+        { name: 'Butter Garlic Naan', quantity: 3, price: 50, total: 150, gst_rate: defaultGst, hsn_code: '996331' },
+        { name: 'Jeera Rice', quantity: 1, price: 160, total: 160, gst_rate: defaultGst, hsn_code: '996331' }
       ],
-      subtotal: 590,
+      subtotal: sub,
       discount_type: 'percent',
       discount_value: 10,
-      discount_amount: 59,
-      taxable_amount: 505.71,
-      cgst: 12.64,
-      sgst: 12.64,
+      discount_amount: disc,
+      taxable_amount: Math.round(taxBase * 100) / 100,
+      cgst: halfTax,
+      sgst: halfTax,
       round_off: -0.28,
-      total: 531,
+      total: grand,
       payment_mode: 'upi',
       payment_details: 'GPay Ref #4029184',
       notes: 'Extra spicy, serve hot'
     };
 
-    // Helper: Collect current form values
+    // Try fetching the store's latest actual bill so preview reflects live business orders
+    let latestOrder = null;
+    let previewSource = 'latest';
+    try {
+      if (window.api?.orders?.getAll) {
+        const orderRes = await window.api.orders.getAll({ limit: 1 });
+        const ordersList = orderRes?.data?.orders || orderRes?.orders || [];
+        if (ordersList.length > 0 && ordersList[0].id) {
+          const fullRes = await window.api.orders.getById(ordersList[0].id);
+          const fullOrder = fullRes?.data || fullRes;
+          if (fullOrder && fullOrder.items && fullOrder.items.length > 0) {
+            latestOrder = fullOrder;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Could not load latest order for preview:', e);
+    }
+
+    if (!latestOrder) {
+      previewSource = 'sample';
+    }
+
+    // Toggle button to alternate between Latest Bill and Sample Bill
+    const sourceToggleBtn = document.getElementById('btn-toggle-preview-source');
+    const sourceLabel = document.getElementById('preview-source-label');
+    if (sourceToggleBtn && latestOrder) {
+      sourceToggleBtn.style.display = 'inline-flex';
+      sourceLabel.textContent = (previewSource === 'latest') ? `⚡ Bill #${latestOrder.order_no || 'Latest'}` : '📋 Sample Bill';
+      sourceToggleBtn.onclick = () => {
+        previewSource = (previewSource === 'latest') ? 'sample' : 'latest';
+        sourceLabel.textContent = (previewSource === 'latest') ? `⚡ Bill #${latestOrder.order_no || 'Latest'}` : '📋 Sample Bill';
+        updatePreview(true);
+      };
+    }
+
+    // Helper: Collect current form values live
     const getFormSettings = () => {
       const form = document.getElementById('settings-printer-form');
       if (!form) return this.settings;
@@ -1098,8 +1150,12 @@ window.SettingsUI = {
       return { ...this.settings, ...data };
     };
 
-    // Helper: Update live preview iframe
-    const updatePreview = async () => {
+    // Live preview updater with sequence counter & debounce
+    let previewSeq = 0;
+    let debounceTimer = null;
+
+    const doUpdatePreview = async () => {
+      const seq = ++previewSeq;
       const previewFrame = document.getElementById('printer-live-preview-frame');
       const paperBox = document.getElementById('preview-paper-box');
       const widthBadge = document.getElementById('preview-width-badge');
@@ -1108,7 +1164,9 @@ window.SettingsUI = {
       const currentS = getFormSettings();
 
       if (paperBox) {
-        if (currentS.printer_width === '58') {
+        if (currentS.printer_type === 'standard') {
+          paperBox.className = 'printer-preview-paper-card width-standard';
+        } else if (currentS.printer_width === '58') {
           paperBox.className = 'printer-preview-paper-card width-58';
         } else {
           paperBox.className = 'printer-preview-paper-card width-80';
@@ -1119,28 +1177,56 @@ window.SettingsUI = {
       }
 
       try {
+        const orderToUse = (previewSource === 'latest' && latestOrder) ? latestOrder : sampleOrder;
         const previewType = currentS.printer_type === 'standard' ? 'invoice' : 'receipt';
-        const res = await window.api.print.getPreview(sampleOrder, currentS, previewType);
+        const res = await window.api.print.getPreview(orderToUse, currentS, previewType);
+        if (seq !== previewSeq) return; // Discard stale out-of-order response
+
         const html = (res && typeof res === 'object' && res.data) ? res.data : (typeof res === 'string' ? res : '');
         previewFrame.srcdoc = html;
+
+        previewFrame.onload = () => {
+          try {
+            const body = previewFrame.contentWindow.document.body;
+            const htmlEl = previewFrame.contentWindow.document.documentElement;
+            const scrollH = Math.max(body?.scrollHeight || 0, htmlEl?.scrollHeight || 0, 420);
+            previewFrame.style.height = `${scrollH + 20}px`;
+          } catch (e) {}
+        };
       } catch (err) {
         console.error('Failed to render live preview:', err);
       }
     };
 
-    // Initial preview render
-    await updatePreview();
+    const updatePreview = (immediate = false) => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      if (immediate) {
+        doUpdatePreview();
+      } else {
+        debounceTimer = setTimeout(doUpdatePreview, 35);
+      }
+    };
 
-    // Re-render preview on any form input/change
+    // Initial preview render
+    await doUpdatePreview();
+
+    // Re-render preview on ANY form input, typing, or change event
     const form = document.getElementById('settings-printer-form');
     if (form) {
-      form.addEventListener('input', () => updatePreview());
-      form.addEventListener('change', () => updatePreview());
+      form.addEventListener('input', () => updatePreview(false));
+      form.addEventListener('change', () => updatePreview(true));
+
+      // Attach directly to inputs, checkboxes, and selects for instantaneous responsiveness
+      form.querySelectorAll('input, select, textarea').forEach(el => {
+        el.addEventListener('input', () => updatePreview(false));
+        el.addEventListener('change', () => updatePreview(true));
+      });
 
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const data = getFormSettings();
         await this.saveBulk(data);
+        await doUpdatePreview();
       });
     }
 
@@ -1151,6 +1237,7 @@ window.SettingsUI = {
 
     const triggerTestPrint = async () => {
       const currentS = getFormSettings();
+      const orderToPrint = (previewSource === 'latest' && latestOrder) ? latestOrder : sampleOrder;
       try {
         window.App.showToast('Sending test receipt to printer...', 'info');
         // If Android Direct Bluetooth is available and silent print is enabled
@@ -1166,9 +1253,9 @@ window.SettingsUI = {
         }
 
         if (currentS.printer_type === 'standard') {
-          await window.api.print.invoice(sampleOrder, currentS);
+          await window.api.print.invoice(orderToPrint, currentS);
         } else {
-          await window.api.print.receipt(sampleOrder, currentS);
+          await window.api.print.receipt(orderToPrint, currentS);
         }
         window.App.showToast('Test print sent to printer successfully!', 'success');
       } catch (err) {
@@ -2356,7 +2443,12 @@ order by order_date desc, hour_of_day asc;`;
 
             <div class="form-group">
               <label>Supabase Project URL</label>
-              <input type="url" name="supabase_url" id="input-supabase-url" value="${supabaseUrl}" placeholder="https://xyzprojectref.supabase.co" autocomplete="off" required>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input type="text" name="supabase_url" id="input-supabase-url" value="${supabaseUrl}" placeholder="https://xyzprojectref.supabase.co" autocomplete="off" style="flex:1;" required>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-paste-url" title="Paste Project URL from Clipboard" style="padding:7px 12px;white-space:nowrap;font-size:12px;display:inline-flex;align-items:center;gap:4px;">
+                  📋 Paste
+                </button>
+              </div>
               <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block;">
                 Found in Supabase under Project Settings &gt; Configuration &gt; API &gt; Project URL
               </span>
@@ -2364,7 +2456,17 @@ order by order_date desc, hour_of_day asc;`;
 
             <div class="form-group">
               <label>Supabase Public Anon Key (apikey)</label>
-              <input type="password" name="supabase_anon_key" id="input-supabase-key" value="${anonKey}" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." autocomplete="off" required>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <div style="position:relative;flex:1;">
+                  <input type="password" name="supabase_anon_key" id="input-supabase-key" value="${anonKey}" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." autocomplete="off" style="width:100%;padding-right:38px;" required>
+                  <button type="button" id="btn-toggle-key-visibility" title="Show / Hide Key" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;color:var(--text-secondary);display:flex;align-items:center;justify-content:center;z-index:2;">
+                    👁️
+                  </button>
+                </div>
+                <button type="button" class="btn btn-outline btn-sm" id="btn-paste-key" title="Paste Anon Key from Clipboard" style="padding:7px 12px;white-space:nowrap;font-size:12px;display:inline-flex;align-items:center;gap:4px;">
+                  📋 Paste
+                </button>
+              </div>
               <span style="font-size:11px;color:var(--text-muted);margin-top:4px;display:block;">
                 Found in Supabase under Project Settings &gt; Configuration &gt; API &gt; Project API keys &gt; 'anon' public
               </span>
@@ -2470,13 +2572,79 @@ order by order_date desc, hour_of_day asc;`;
       };
     }
 
+    // Toggle Anon Key visibility
+    const eyeBtn = document.getElementById('btn-toggle-key-visibility');
+    const keyField = document.getElementById('input-supabase-key');
+    if (eyeBtn && keyField) {
+      eyeBtn.onclick = () => {
+        if (keyField.type === 'password') {
+          keyField.type = 'text';
+          eyeBtn.textContent = '🙈';
+          eyeBtn.title = 'Hide Key';
+        } else {
+          keyField.type = 'password';
+          eyeBtn.textContent = '👁️';
+          eyeBtn.title = 'Show Key';
+        }
+      };
+    }
+
+    // Clipboard Paste helper for URL and Key
+    const pasteToInput = async (targetInput, fieldName) => {
+      if (!targetInput) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const text = await navigator.clipboard.readText();
+          if (text && text.trim()) {
+            targetInput.value = text.trim();
+            targetInput.dispatchEvent(new Event('input', { bubbles: true }));
+            window.App?.showToast(`Pasted ${fieldName} from clipboard!`, 'success', 2000);
+            return;
+          }
+        }
+        targetInput.focus();
+        window.App?.showToast('Please long-press the field and tap Paste', 'info', 3000);
+      } catch (err) {
+        console.warn(`[Paste] Could not read clipboard for ${fieldName}:`, err);
+        targetInput.focus();
+        window.App?.showToast('Please long-press the field and tap Paste', 'info', 3000);
+      }
+    };
+
+    const pasteUrlBtn = document.getElementById('btn-paste-url');
+    if (pasteUrlBtn) {
+      pasteUrlBtn.onclick = () => {
+        pasteToInput(document.getElementById('input-supabase-url'), 'Project URL');
+      };
+    }
+
+    const pasteKeyBtn = document.getElementById('btn-paste-key');
+    if (pasteKeyBtn) {
+      pasteKeyBtn.onclick = () => {
+        pasteToInput(document.getElementById('input-supabase-key'), 'Anon Key');
+      };
+    }
+
     // Test Connection Button
     const testBtn = document.getElementById('btn-test-supabase');
     const resultBox = document.getElementById('supabase-test-result');
     if (testBtn) {
       testBtn.onclick = async () => {
-        const url = document.getElementById('input-supabase-url')?.value || '';
-        const key = document.getElementById('input-supabase-key')?.value || '';
+        const urlInput = document.getElementById('input-supabase-url');
+        const keyInput = document.getElementById('input-supabase-key');
+
+        let rawUrl = urlInput?.value || '';
+        let rawKey = keyInput?.value || '';
+
+        // Clean values and write back to inputs so user sees sanitized values
+        const cleanUrl = window.SupabaseSync.cleanSupabaseUrl(rawUrl);
+        const cleanKey = window.SupabaseSync.cleanSupabaseKey(rawKey);
+        if (urlInput && cleanUrl && cleanUrl !== rawUrl) {
+          urlInput.value = cleanUrl;
+        }
+        if (keyInput && cleanKey && cleanKey !== rawKey) {
+          keyInput.value = cleanKey;
+        }
 
         testBtn.disabled = true;
         testBtn.innerHTML = '<span>Testing connection...</span>';
@@ -2488,23 +2656,46 @@ order by order_date desc, hour_of_day asc;`;
           resultBox.textContent = 'Connecting to Supabase...';
         }
 
-        const res = await window.SupabaseSync.testConnection(url, key);
+        const res = await window.SupabaseSync.testConnection(cleanUrl || rawUrl, cleanKey || rawKey);
         testBtn.disabled = false;
         testBtn.innerHTML = '<span>⚡ Test Supabase Connection</span>';
 
         if (resultBox) {
           resultBox.style.display = 'block';
           if (res.success) {
-            resultBox.style.background = 'rgba(34, 197, 94, 0.12)';
-            resultBox.style.color = 'var(--color-success)';
-            resultBox.style.border = '1px solid rgba(34, 197, 94, 0.3)';
-            resultBox.innerHTML = `<b>✓ Connection Successful!</b><br>${res.message}`;
-            window.App.showToast('Supabase connection verified!', 'success');
+            if (res.tablesPending) {
+              resultBox.style.background = 'rgba(234, 179, 8, 0.12)';
+              resultBox.style.color = '#eab308';
+              resultBox.style.border = '1px solid rgba(234, 179, 8, 0.35)';
+              resultBox.innerHTML = `
+                <div style="font-weight:700;font-size:13px;margin-bottom:6px;display:flex;align-items:center;gap:6px;">
+                  <span>🟡</span> Credentials Verified &amp; Connected!
+                </div>
+                <div style="color:var(--text-primary);line-height:1.5;white-space:pre-line;">${res.message}</div>
+              `;
+              window.App.showToast('Credentials verified! Run SQL script to finish.', 'warning', 6000);
+            } else {
+              resultBox.style.background = 'rgba(34, 197, 94, 0.12)';
+              resultBox.style.color = 'var(--color-success)';
+              resultBox.style.border = '1px solid rgba(34, 197, 94, 0.3)';
+              resultBox.innerHTML = `
+                <div style="font-weight:700;font-size:13px;margin-bottom:4px;display:flex;align-items:center;gap:6px;">
+                  <span>✅</span> Connection Successful!
+                </div>
+                <div style="line-height:1.4;">${res.message}</div>
+              `;
+              window.App.showToast('Supabase connection verified!', 'success');
+            }
           } else {
             resultBox.style.background = 'rgba(239, 68, 68, 0.12)';
             resultBox.style.color = 'var(--color-danger)';
             resultBox.style.border = '1px solid rgba(239, 68, 68, 0.3)';
-            resultBox.innerHTML = `<b>✗ Connection Failed:</b><br>${res.message}`;
+            resultBox.innerHTML = `
+              <div style="font-weight:700;font-size:13px;margin-bottom:4px;display:flex;align-items:center;gap:6px;">
+                <span>❌</span> Connection Failed
+              </div>
+              <div style="line-height:1.5;white-space:pre-line;color:var(--text-primary);">${res.message}</div>
+            `;
             window.App.showToast('Connection failed. See details below.', 'error');
           }
         }
@@ -2530,21 +2721,29 @@ order by order_date desc, hour_of_day asc;`;
         sessionStorage.removeItem('draft_supabase_outlet');
 
         const enabled = document.getElementById('select-supabase-enabled')?.value || '0';
-        const url = (document.getElementById('input-supabase-url')?.value || '').trim();
-        const key = (document.getElementById('input-supabase-key')?.value || '').trim();
+        const rawUrl = document.getElementById('input-supabase-url')?.value || '';
+        const rawKey = document.getElementById('input-supabase-key')?.value || '';
         const outlet = (document.getElementById('input-supabase-outlet')?.value || '').trim();
+
+        const cleanUrl = window.SupabaseSync.cleanSupabaseUrl(rawUrl);
+        const cleanKey = window.SupabaseSync.cleanSupabaseKey(rawKey);
+
+        const urlInputEl = document.getElementById('input-supabase-url');
+        const keyInputEl = document.getElementById('input-supabase-key');
+        if (urlInputEl && cleanUrl) urlInputEl.value = cleanUrl;
+        if (keyInputEl && cleanKey) keyInputEl.value = cleanKey;
 
         await this.saveBulk({
           supabase_enabled: enabled,
-          supabase_url: url,
-          supabase_anon_key: key,
+          supabase_url: cleanUrl,
+          supabase_anon_key: cleanKey,
           supabase_outlet_name: outlet
         }, 'Supabase metrics settings saved!');
 
         // Update status badge
         const badge = document.getElementById('badge-supabase-status');
         if (badge) {
-          const active = enabled === '1' && url;
+          const active = enabled === '1' && cleanUrl;
           badge.style.background = active ? 'rgba(34,197,94,0.15)' : 'var(--bg-tertiary)';
           badge.style.color = active ? 'var(--color-success)' : 'var(--text-muted)';
           badge.style.border = `1px solid ${active ? 'rgba(34,197,94,0.3)' : 'var(--border-color)'}`;

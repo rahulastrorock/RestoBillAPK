@@ -3374,9 +3374,13 @@ input:checked + .switch-slider:before {
   max-width: 100%;
 }
 
+.printer-preview-paper-card.width-standard {
+  max-width: 100%;
+}
+
 .printer-preview-iframe {
   width: 100%;
-  height: 480px;
+  min-height: 460px;
   border: none;
   display: block;
   background: #ffffff;

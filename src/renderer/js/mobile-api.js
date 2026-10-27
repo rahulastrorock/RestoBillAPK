@@ -531,28 +531,255 @@
   }
 
   // ─── Receipt & Invoice Generator for Mobile ──────────────────────
-  function generateReceiptHtml(order, settings = {}) {
+  function isOptionEnabled(val, defaultVal = true) {
+    if (val === undefined || val === null || val === '') return defaultVal;
+    return val === '1' || val === true || val === 1 || val === 'true';
+  }
+
+  function numberToWordsINR(amount) {
+    const num = Math.round(Number(amount) || 0);
+    if (num <= 0) return 'Zero Rupees Only';
+    const a = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+      'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
+    const b = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+    function inWords(n) {
+      if (n < 20) return a[n];
+      if (n < 100) return b[Math.floor(n / 10)] + (n % 10 !== 0 ? ' ' + a[n % 10] : '');
+      if (n < 1000) return a[Math.floor(n / 100)] + ' Hundred' + (n % 100 !== 0 ? ' and ' + inWords(n % 100) : '');
+      if (n < 100000) return inWords(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 !== 0 ? ' ' + inWords(n % 1000) : '');
+      if (n < 10000000) return inWords(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 !== 0 ? ' ' + inWords(n % 100000) : '');
+      return inWords(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 !== 0 ? ' ' + inWords(n % 10000000) : '');
+    }
+    return inWords(num).trim() + ' Rupees Only';
+  }
+
+  function generateReceiptHtml(order, settings = {}, type = 'receipt') {
     const s = settings || {};
-    const restaurant_name = s.restaurant_name || 'Restaurant';
-    const restaurant_address = s.restaurant_address || '';
-    const restaurant_phone = s.restaurant_phone || '';
-    const gstin = s.gstin || '';
-    const fssai_no = s.fssai_no || '';
-    const footer_text = s.footer_text || 'Thank you! Visit again!';
     const currency = s.currency_symbol || '₹';
 
-    let itemsRows = (order.items || []).map(i => `
+    // ── Standard A4/A5 Laser/Inkjet Tax Invoice Layout ─────────────
+    if (type === 'invoice' || s.printer_type === 'standard') {
+      const showLogo = isOptionEnabled(s.print_show_logo, true) && s.restaurant_logo;
+      const showName = isOptionEnabled(s.print_show_restaurant_name, true);
+      const showAddr = isOptionEnabled(s.print_show_address, true) && s.restaurant_address;
+      const showPhone = isOptionEnabled(s.print_show_phone, true) && s.restaurant_phone;
+      const showGstin = isOptionEnabled(s.print_show_gstin, true) && s.gstin;
+      const showFssai = isOptionEnabled(s.print_show_fssai, true) && s.fssai_no;
+      const showOrderNo = isOptionEnabled(s.print_show_order_no, true);
+      const showDate = isOptionEnabled(s.print_show_date, true);
+      const showTable = isOptionEnabled(s.print_show_table, true) && order.table_no;
+      const showOrderType = isOptionEnabled(s.print_show_order_type, true);
+      const showCashier = isOptionEnabled(s.print_show_cashier, true) && order.user_name;
+      const showCustomer = isOptionEnabled(s.print_show_customer, true) && (order.customer_name || order.customer_phone);
+      const showCustGstin = isOptionEnabled(s.print_show_customer_gstin, true) && order.customer_gstin;
+      const showRate = isOptionEnabled(s.print_show_rate, true);
+      const showHsn = isOptionEnabled(s.show_hsn, true);
+      const showItemTax = isOptionEnabled(s.print_show_item_tax, false);
+      const showSubtotal = isOptionEnabled(s.print_show_subtotal, true);
+      const showTaxBreakdown = isOptionEnabled(s.print_show_tax_breakdown, true);
+      const showPayment = isOptionEnabled(s.print_show_payment_mode, true);
+      const showWords = isOptionEnabled(s.print_show_amount_words, false);
+      const showNotes = isOptionEnabled(s.print_show_notes, true) && order.notes;
+      const showFooter = isOptionEnabled(s.print_show_footer, true);
+      const showTerms = isOptionEnabled(s.print_show_terms, false);
+      const showBranding = isOptionEnabled(s.print_show_branding, true);
+
+      const isInclusive = s.gst_inclusive === '1';
+      const displaySubtotal = (isInclusive && order.taxable_amount > 0) ? order.taxable_amount : (order.subtotal || 0);
+
+      const invoiceRows = (order.items || []).map((i, idx) => `
+        <tr>
+          <td style="padding:8px 10px; border-bottom:1px solid #e2e8f0; text-align:center;">${idx + 1}</td>
+          <td style="padding:8px 10px; border-bottom:1px solid #e2e8f0;">
+            <div style="font-weight:600; color:#1e293b;">${i.name}</div>
+            ${showHsn && (i.hsn_code || '996331') ? `<div style="font-size:11px; color:#64748b;">HSN/SAC: ${i.hsn_code || '996331'}</div>` : ''}
+          </td>
+          <td style="padding:8px 10px; border-bottom:1px solid #e2e8f0; text-align:center;">${i.quantity}</td>
+          ${showRate ? `<td style="padding:8px 10px; border-bottom:1px solid #e2e8f0; text-align:right;">${currency}${parseFloat(i.price).toFixed(2)}</td>` : ''}
+          ${showItemTax ? `<td style="padding:8px 10px; border-bottom:1px solid #e2e8f0; text-align:center;">${i.gst_rate || 5}%</td>` : ''}
+          <td style="padding:8px 10px; border-bottom:1px solid #e2e8f0; text-align:right; font-weight:600;">${currency}${parseFloat(i.total || (i.price * i.quantity)).toFixed(2)}</td>
+        </tr>
+      `).join('');
+
+      return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Invoice ${order.order_no || ''}</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif; margin: 0; padding: 24px; color: #1e293b; background: #fff; font-size: 13px; line-height: 1.4; }
+    .invoice-card { max-width: 800px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 8px; padding: 28px; }
+    .header-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    .meta-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px 16px; margin-bottom: 20px; }
+    table.data-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+    table.data-table th { background: #f1f5f9; color: #475569; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; padding: 8px 10px; border-bottom: 2px solid #cbd5e1; }
+    .totals-table { width: 320px; margin-left: auto; border-collapse: collapse; }
+    .totals-table td { padding: 5px 8px; font-size: 13px; }
+    .grand-total-row { font-size: 16px; font-weight: 700; color: #0f172a; border-top: 2px solid #0f172a; border-bottom: 2px solid #0f172a; }
+  </style>
+</head>
+<body>
+  <div class="invoice-card">
+    <table class="header-table">
       <tr>
-        <td style="text-align:left; padding:3px 0;">${i.name}</td>
-        <td style="text-align:center; padding:3px 0;">${i.quantity}</td>
-        <td style="text-align:right; padding:3px 0;">${currency}${parseFloat(i.price).toFixed(2)}</td>
-        <td style="text-align:right; padding:3px 0;">${currency}${parseFloat(i.total || (i.price * i.quantity)).toFixed(2)}</td>
+        <td style="vertical-align:top; width:60%;">
+          ${showLogo ? `<img src="${s.restaurant_logo}" style="max-height:55px; margin-bottom:8px; display:block;" />` : ''}
+          ${showName ? `<h2 style="margin:0 0 4px 0; font-size:20px; color:#0f172a;">${s.restaurant_name || 'Restaurant'}</h2>` : ''}
+          ${showAddr ? `<div style="color:#64748b; font-size:12px;">${s.restaurant_address}</div>` : ''}
+          ${showPhone ? `<div style="color:#64748b; font-size:12px;">Phone: ${s.restaurant_phone}</div>` : ''}
+          ${showGstin ? `<div style="color:#334155; font-size:12px; font-weight:600; margin-top:2px;">GSTIN: ${s.gstin}</div>` : ''}
+          ${showFssai ? `<div style="color:#64748b; font-size:12px;">FSSAI: ${s.fssai_no}</div>` : ''}
+        </td>
+        <td style="vertical-align:top; text-align:right; width:40%;">
+          <div style="font-size:20px; font-weight:800; color:#3b82f6; text-transform:uppercase; letter-spacing:1px; margin-bottom:8px;">
+            ${s.receipt_header_title || 'TAX INVOICE'}
+          </div>
+          ${showOrderNo ? `<div style="font-size:13px; font-weight:700;">Invoice #: ${order.order_no || 'DRAFT'}</div>` : ''}
+          ${showDate ? `<div style="color:#64748b; font-size:12px;">Date: ${new Date(order.created_at || Date.now()).toLocaleDateString('en-IN')}</div>` : ''}
+          ${showOrderType ? `<div style="color:#64748b; font-size:12px;">Type: ${(order.order_type || 'dine_in').toUpperCase()}</div>` : ''}
+          ${showTable ? `<div style="color:#64748b; font-size:12px;">Table: ${order.table_no}</div>` : ''}
+          ${showCashier ? `<div style="color:#64748b; font-size:12px;">Staff: ${order.user_name}</div>` : ''}
+        </td>
       </tr>
-    `).join('');
+    </table>
+
+    ${(showCustomer || showCustGstin) ? `
+      <div class="meta-box">
+        <div style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase; margin-bottom:4px;">Billed To:</div>
+        ${order.customer_name ? `<div style="font-size:14px; font-weight:700; color:#0f172a;">${order.customer_name}</div>` : ''}
+        ${order.customer_phone ? `<div style="color:#475569; font-size:12px;">Phone: ${order.customer_phone}</div>` : ''}
+        ${showCustGstin ? `<div style="color:#334155; font-size:12px; font-weight:600;">GSTIN: ${order.customer_gstin}</div>` : ''}
+      </div>
+    ` : ''}
+
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:40px; text-align:center;">#</th>
+          <th style="text-align:left;">Item & Description</th>
+          <th style="width:60px; text-align:center;">Qty</th>
+          ${showRate ? `<th style="width:80px; text-align:right;">Rate</th>` : ''}
+          ${showItemTax ? `<th style="width:70px; text-align:center;">GST %</th>` : ''}
+          <th style="width:90px; text-align:right;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${invoiceRows}
+      </tbody>
+    </table>
+
+    <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
+      <tr>
+        <td style="vertical-align:top; width:55%;">
+          ${showWords ? `
+            <div style="margin-bottom:12px;">
+              <span style="font-size:11px; font-weight:700; color:#64748b; text-transform:uppercase;">Amount in Words:</span>
+              <div style="font-style:italic; font-weight:600; color:#334155; margin-top:2px;">${numberToWordsINR(order.total || 0)}</div>
+            </div>
+          ` : ''}
+          ${showPayment ? `
+            <div style="font-size:12px; color:#475569; margin-bottom:8px;">
+              <b>Payment Mode:</b> ${(order.payment_mode || 'cash').toUpperCase()}${order.payment_details ? ` (${order.payment_details})` : ''}
+            </div>
+          ` : ''}
+          ${showNotes ? `
+            <div style="font-size:12px; color:#475569; background:#fffbeb; padding:6px 10px; border-radius:4px; border:1px solid #fef3c7; display:inline-block;">
+              <b>Notes:</b> ${order.notes}
+            </div>
+          ` : ''}
+        </td>
+        <td style="vertical-align:top; width:45%;">
+          <table class="totals-table">
+            ${showSubtotal ? `<tr><td>Subtotal:</td><td style="text-align:right;">${currency}${parseFloat(displaySubtotal).toFixed(2)}</td></tr>` : ''}
+            ${order.discount_amount > 0 ? `<tr><td style="color:#16a34a;">Discount:</td><td style="text-align:right; color:#16a34a;">-${currency}${parseFloat(order.discount_amount).toFixed(2)}</td></tr>` : ''}
+            ${showTaxBreakdown && order.cgst > 0 ? `<tr><td>CGST:</td><td style="text-align:right;">${currency}${parseFloat(order.cgst).toFixed(2)}</td></tr>` : ''}
+            ${showTaxBreakdown && order.sgst > 0 ? `<tr><td>SGST:</td><td style="text-align:right;">${currency}${parseFloat(order.sgst).toFixed(2)}</td></tr>` : ''}
+            ${order.round_off ? `<tr><td>Round Off:</td><td style="text-align:right;">${currency}${parseFloat(order.round_off).toFixed(2)}</td></tr>` : ''}
+            <tr class="grand-total-row"><td>Grand Total:</td><td style="text-align:right;">${currency}${parseFloat(order.total || 0).toFixed(2)}</td></tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+
+    ${showTerms && s.terms_text ? `
+      <div style="margin-top:20px; padding-top:12px; border-top:1px dashed #cbd5e1; font-size:11px; color:#64748b;">
+        <b style="color:#334155;">Terms & Conditions:</b><br>${s.terms_text}
+      </div>
+    ` : ''}
+
+    ${showFooter && s.footer_text ? `
+      <div style="text-align:center; margin-top:20px; font-weight:600; color:#475569; font-size:13px;">
+        ${s.footer_text}
+      </div>
+    ` : ''}
+
+    ${showBranding ? `
+      <div style="text-align:center; margin-top:12px; font-size:10px; color:#94a3b8;">
+        Generated via RestoBill POS
+      </div>
+    ` : ''}
+  </div>
+</body>
+</html>`;
+    }
+
+    // ── Thermal ESC/POS Receipt Layout (58mm or 80mm) ───────────────
+    const is58mm = String(s.printer_width) === '58';
+    const receiptWidth = is58mm ? '52mm' : '72mm';
+    const fontSize = is58mm ? '11px' : '12px';
+
+    const showLogo = isOptionEnabled(s.print_show_logo, true) && s.restaurant_logo;
+    const showName = isOptionEnabled(s.print_show_restaurant_name, true);
+    const showAddr = isOptionEnabled(s.print_show_address, true) && s.restaurant_address;
+    const showPhone = isOptionEnabled(s.print_show_phone, true) && s.restaurant_phone;
+    const showGstin = isOptionEnabled(s.print_show_gstin, true) && s.gstin;
+    const showFssai = isOptionEnabled(s.print_show_fssai, true) && s.fssai_no;
+
+    const showOrderNo = isOptionEnabled(s.print_show_order_no, true);
+    const showDate = isOptionEnabled(s.print_show_date, true);
+    const showTable = isOptionEnabled(s.print_show_table, true) && order.table_no;
+    const showOrderType = isOptionEnabled(s.print_show_order_type, true);
+    const showCashier = isOptionEnabled(s.print_show_cashier, true) && order.user_name;
+    const showCustomer = isOptionEnabled(s.print_show_customer, true) && (order.customer_name || order.customer_phone);
+    const showCustGstin = isOptionEnabled(s.print_show_customer_gstin, true) && order.customer_gstin;
+
+    const showRate = isOptionEnabled(s.print_show_rate, true);
+    const showHsn = isOptionEnabled(s.show_hsn, true);
+    const showItemTax = isOptionEnabled(s.print_show_item_tax, false);
+    const showSubtotal = isOptionEnabled(s.print_show_subtotal, true);
+    const showTaxBreakdown = isOptionEnabled(s.print_show_tax_breakdown, true);
+    const showPayment = isOptionEnabled(s.print_show_payment_mode, true);
+    const showWords = isOptionEnabled(s.print_show_amount_words, false);
+    const showNotes = isOptionEnabled(s.print_show_notes, true) && order.notes;
+
+    const showFooter = isOptionEnabled(s.print_show_footer, true);
+    const showTerms = isOptionEnabled(s.print_show_terms, false);
+    const showBranding = isOptionEnabled(s.print_show_branding, true);
 
     const isInclusive = s.gst_inclusive === '1';
     const displaySubtotal = (isInclusive && order.taxable_amount > 0) ? order.taxable_amount : (order.subtotal || 0);
     const subtotalLabel = isInclusive ? 'Taxable Amount:' : 'Subtotal:';
+
+    const itemsRows = (order.items || []).map(i => {
+      const lineTotal = currency + parseFloat(i.total || (i.price * i.quantity)).toFixed(2);
+      const unitRate = currency + parseFloat(i.price).toFixed(2);
+      const taxTag = showItemTax ? ` <span style="font-size:10px; color:#555;">(${i.gst_rate || 5}%)</span>` : '';
+      const hsnLine = showHsn && (i.hsn_code || '996331') ? `<div style="font-size:10px; color:#555;">HSN: ${i.hsn_code || '996331'}</div>` : '';
+
+      return `
+        <tr>
+          <td style="text-align:left; padding:3px 0; vertical-align:top; word-break:break-word;">
+            <div>${i.name}${taxTag}</div>
+            ${hsnLine}
+          </td>
+          <td style="text-align:center; padding:3px 0; vertical-align:top; white-space:nowrap;">${i.quantity}</td>
+          ${showRate ? `<td style="text-align:right; padding:3px 0; vertical-align:top; white-space:nowrap;">${unitRate}</td>` : ''}
+          <td style="text-align:right; padding:3px 0; vertical-align:top; white-space:nowrap;">${lineTotal}</td>
+        </tr>
+      `;
+    }).join('');
 
     return `<!DOCTYPE html>
 <html>
@@ -560,55 +787,94 @@
   <meta charset="UTF-8">
   <title>Receipt ${order.order_no || ''}</title>
   <style>
-    body { font-family: monospace; width: 72mm; margin: 0 auto; padding: 8px 4px; font-size: 12px; color: #000; }
+    * { box-sizing: border-box; }
+    body { font-family: 'Courier New', Courier, monospace; width: ${receiptWidth}; margin: 0 auto; padding: 6px 2px; font-size: ${fontSize}; color: #000; background: #fff; line-height: 1.3; }
     .center { text-align: center; }
     .right { text-align: right; }
-    .divider { border-top: 1px dashed #000; margin: 6px 0; }
-    .double { border-top: 2px double #000; margin: 6px 0; }
-    .title { font-size: 16px; font-weight: bold; }
+    .divider { border-top: 1px dashed #000; margin: 5px 0; }
+    .double { border-top: 2px double #000; margin: 5px 0; }
+    .title { font-size: ${is58mm ? '14px' : '16px'}; font-weight: bold; word-break: break-word; }
     table { width: 100%; border-collapse: collapse; }
+    .meta-line { font-size: ${is58mm ? '10px' : '11px'}; word-break: break-word; }
   </style>
 </head>
 <body>
   <div class="center">
-    <div class="title">${restaurant_name}</div>
-    ${restaurant_address ? `<div>${restaurant_address}</div>` : ''}
-    ${restaurant_phone ? `<div>Phone: ${restaurant_phone}</div>` : ''}
-    ${gstin ? `<div>GSTIN: ${gstin}</div>` : ''}
-    ${fssai_no ? `<div>FSSAI: ${fssai_no}</div>` : ''}
+    ${showLogo ? `<img src="${s.restaurant_logo}" style="max-height:45px; max-width:130px; margin:0 auto 4px auto; display:block; object-fit:contain;" />` : ''}
+    ${showName ? `<div class="title">${s.restaurant_name || 'Restaurant'}</div>` : ''}
+    ${showAddr ? `<div class="meta-line">${s.restaurant_address}</div>` : ''}
+    ${showPhone ? `<div class="meta-line">Phone: ${s.restaurant_phone}</div>` : ''}
+    ${showGstin ? `<div class="meta-line">GSTIN: ${s.gstin}</div>` : ''}
+    ${showFssai ? `<div class="meta-line">FSSAI: ${s.fssai_no}</div>` : ''}
   </div>
+
   <div class="double"></div>
-  <div class="center" style="font-weight:bold;">${s.receipt_header_title || 'TAX INVOICE'}</div>
+  ${(s.receipt_header_title || 'TAX INVOICE').trim() ? `<div class="center" style="font-weight:bold; letter-spacing:0.5px;">${s.receipt_header_title || 'TAX INVOICE'}</div>` : ''}
   <div class="divider"></div>
-  <div>Bill No: <b>${order.order_no}</b></div>
-  <div>Date: ${new Date(order.created_at || Date.now()).toLocaleString('en-IN')}</div>
-  ${order.table_no ? `<div>Table: ${order.table_no}</div>` : ''}
-  <div>Type: ${(order.order_type || 'dine_in').toUpperCase()}</div>
-  ${order.customer_name ? `<div>Customer: ${order.customer_name} (${order.customer_phone || ''})</div>` : ''}
+
+  ${showOrderNo ? `<div>Bill No: <b>${order.order_no || 'DRAFT'}</b></div>` : ''}
+  ${showDate ? `<div>Date: ${new Date(order.created_at || Date.now()).toLocaleString('en-IN')}</div>` : ''}
+  ${showTable ? `<div>Table: ${order.table_no}</div>` : ''}
+  ${showOrderType ? `<div>Type: ${(order.order_type || 'dine_in').toUpperCase()}</div>` : ''}
+  ${showCashier ? `<div>Cashier: ${order.user_name}</div>` : ''}
+  ${showCustomer ? `<div>Customer: ${order.customer_name || ''}${order.customer_phone ? ` (${order.customer_phone})` : ''}</div>` : ''}
+  ${showCustGstin ? `<div>Cust GSTIN: ${order.customer_gstin}</div>` : ''}
+
   <div class="divider"></div>
   <table>
     <thead>
       <tr style="border-bottom: 1px dashed #000;">
         <th style="text-align:left;">Item</th>
-        <th style="text-align:center;">Qty</th>
-        <th style="text-align:right;">Rate</th>
-        <th style="text-align:right;">Amt</th>
+        <th style="text-align:center; width:${is58mm ? '28px' : '36px'};">Qty</th>
+        ${showRate ? `<th style="text-align:right; width:${is58mm ? '48px' : '62px'};">Rate</th>` : ''}
+        <th style="text-align:right; width:${is58mm ? '52px' : '66px'};">Amt</th>
       </tr>
     </thead>
     <tbody>${itemsRows}</tbody>
   </table>
   <div class="divider"></div>
+
   <table>
-    <tr><td>${subtotalLabel}</td><td class="right">${currency}${parseFloat(displaySubtotal).toFixed(2)}</td></tr>
+    ${showSubtotal ? `<tr><td>${subtotalLabel}</td><td class="right">${currency}${parseFloat(displaySubtotal).toFixed(2)}</td></tr>` : ''}
     ${order.discount_amount > 0 ? `<tr><td>Discount:</td><td class="right">-${currency}${parseFloat(order.discount_amount).toFixed(2)}</td></tr>` : ''}
-    ${order.cgst > 0 ? `<tr><td>CGST:</td><td class="right">${currency}${parseFloat(order.cgst).toFixed(2)}</td></tr>` : ''}
-    ${order.sgst > 0 ? `<tr><td>SGST:</td><td class="right">${currency}${parseFloat(order.sgst).toFixed(2)}</td></tr>` : ''}
+    ${showTaxBreakdown && order.cgst > 0 ? `<tr><td>CGST:</td><td class="right">${currency}${parseFloat(order.cgst).toFixed(2)}</td></tr>` : ''}
+    ${showTaxBreakdown && order.sgst > 0 ? `<tr><td>SGST:</td><td class="right">${currency}${parseFloat(order.sgst).toFixed(2)}</td></tr>` : ''}
     ${order.round_off ? `<tr><td>Round Off:</td><td class="right">${currency}${parseFloat(order.round_off).toFixed(2)}</td></tr>` : ''}
-    <tr style="font-weight:bold; font-size:14px; border-top:1px dashed #000;"><td style="padding-top:4px;">Grand Total:</td><td class="right" style="padding-top:4px;">${currency}${parseFloat(order.total || 0).toFixed(2)}</td></tr>
-    <tr><td>Payment:</td><td class="right">${(order.payment_mode || 'cash').toUpperCase()}</td></tr>
+    <tr style="font-weight:bold; font-size:${is58mm ? '13px' : '14px'}; border-top:1px dashed #000;">
+      <td style="padding-top:4px;">Grand Total:</td>
+      <td class="right" style="padding-top:4px;">${currency}${parseFloat(order.total || 0).toFixed(2)}</td>
+    </tr>
+    ${showWords ? `
+      <tr>
+        <td colspan="2" style="font-size:10px; font-style:italic; padding-top:2px; word-break:break-word;">
+          ${numberToWordsINR(order.total || 0)}
+        </td>
+      </tr>
+    ` : ''}
+    ${showPayment ? `<tr><td>Payment:</td><td class="right">${(order.payment_mode || 'cash').toUpperCase()}</td></tr>` : ''}
   </table>
-  <div class="divider"></div>
-  <div class="center" style="margin-top:8px;">${footer_text}</div>
+
+  ${showNotes ? `
+    <div class="divider"></div>
+    <div style="font-size:11px;"><b>Note:</b> ${order.notes}</div>
+  ` : ''}
+
+  ${showFooter && (s.footer_text || 'Thank you! Visit again!').trim() ? `
+    <div class="divider"></div>
+    <div class="center" style="margin-top:6px; font-weight:600;">${s.footer_text || 'Thank you! Visit again!'}</div>
+  ` : ''}
+
+  ${showTerms && s.terms_text ? `
+    <div style="margin-top:6px; font-size:10px; text-align:center; color:#333; line-height:1.25; white-space:pre-wrap;">
+      ${s.terms_text}
+    </div>
+  ` : ''}
+
+  ${showBranding ? `
+    <div class="center" style="margin-top:8px; font-size:9px; color:#666; letter-spacing:0.5px;">
+      Made with ❤️ by RestoBill
+    </div>
+  ` : ''}
 </body>
 </html>`;
   }
@@ -1901,7 +2167,7 @@
         });
         return printers;
       }),
-      getPreview: apiCall(async (orderData, settings, type) => generateReceiptHtml(orderData, settings)),
+      getPreview: apiCall(async (orderData, settings, type) => generateReceiptHtml(orderData, settings, type)),
       receipt: apiCall(async (orderData, settings = {}) => {
         const s = settings || {};
         const isDirectSilent = s.silent_print !== '0'; // default 1 (Instant Silent Direct Print)
@@ -1933,7 +2199,7 @@
         }
 
         // 2. Android Native PrintManager Bridge (fallback or when user chose "Show System Dialog")
-        const html = generateReceiptHtml(orderData, s);
+        const html = generateReceiptHtml(orderData, s, 'receipt');
         const jobName = `Receipt_${orderData.order_no || Date.now()}`;
         if (window.AndroidPrinter && typeof window.AndroidPrinter.printHtml === 'function') {
           window.AndroidPrinter.printHtml(html, jobName);
@@ -1961,8 +2227,34 @@
         }, 500);
         return true;
       }),
-      invoice: apiCall(async (orderData, settings) => {
-        return window.api.print.receipt(orderData, settings);
+      invoice: apiCall(async (orderData, settings = {}) => {
+        const s = settings || {};
+        const html = generateReceiptHtml(orderData, s, 'invoice');
+        const jobName = `Invoice_${orderData.order_no || Date.now()}`;
+        if (window.AndroidPrinter && typeof window.AndroidPrinter.printHtml === 'function') {
+          window.AndroidPrinter.printHtml(html, jobName);
+          return true;
+        }
+
+        const printFrame = document.createElement('iframe');
+        printFrame.style.position = 'fixed';
+        printFrame.style.right = '0';
+        printFrame.style.bottom = '0';
+        printFrame.style.width = '0';
+        printFrame.style.height = '0';
+        printFrame.style.border = '0';
+        document.body.appendChild(printFrame);
+        printFrame.contentWindow.document.open();
+        printFrame.contentWindow.document.write(html);
+        printFrame.contentWindow.document.close();
+        setTimeout(() => {
+          printFrame.contentWindow.focus();
+          printFrame.contentWindow.print();
+          setTimeout(() => {
+            if (document.body.contains(printFrame)) document.body.removeChild(printFrame);
+          }, 2000);
+        }, 500);
+        return true;
       }),
       toPdf: apiCall(async (orderData, settings) => {
         window.api.print.receipt(orderData, settings);
