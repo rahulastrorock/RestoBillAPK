@@ -997,17 +997,6 @@ window.SettingsUI = {
                       <span class="switch-slider"></span>
                     </div>
                   </label>
-
-                  <label class="printer-toggle-item">
-                    <div class="printer-toggle-info">
-                      <span class="printer-toggle-title">Show Branding Footer</span>
-                      <span class="printer-toggle-desc">"Made with ❤️ by astrorock"</span>
-                    </div>
-                    <div class="switch">
-                      <input type="checkbox" name="print_show_branding" ${isChecked(s.print_show_branding, true) ? 'checked' : ''}>
-                      <span class="switch-slider"></span>
-                    </div>
-                  </label>
                 </div>
 
                 <div class="form-group" style="margin-bottom:12px;">

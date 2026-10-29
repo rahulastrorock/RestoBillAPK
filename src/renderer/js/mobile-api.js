@@ -883,7 +883,7 @@
     const showTable = isOptionEnabled(s.print_show_table, true) && order.table_no;
     const showOrderType = isOptionEnabled(s.print_show_order_type, true);
     const showCashier = isOptionEnabled(s.print_show_cashier, true) && order.user_name;
-    const showCustomer = isOptionEnabled(s.print_show_customer, true) && (order.customer_name || order.customer_phone);
+    const showCustomer = isOptionEnabled(s.print_show_customer, true);
     const showCustGstin = isOptionEnabled(s.print_show_customer_gstin, true) && order.customer_gstin;
 
     const showRate = isOptionEnabled(s.print_show_rate, true);
@@ -897,30 +897,41 @@
 
     const showFooter = isOptionEnabled(s.print_show_footer, true);
     const showTerms = isOptionEnabled(s.print_show_terms, false);
-    const showBranding = isOptionEnabled(s.print_show_branding, true);
 
     const isInclusive = s.gst_inclusive === '1';
     const displaySubtotal = (isInclusive && order.taxable_amount > 0) ? order.taxable_amount : (order.subtotal || 0);
-    const subtotalLabel = isInclusive ? 'Taxable Amount:' : 'Subtotal:';
+    const subtotalLabel = isInclusive ? 'Taxable Amt' : 'Sub Total';
 
+    const fmtMoney = (val) => {
+      const num = parseFloat(val) || 0;
+      return num === Math.floor(num) ? String(num) : num.toFixed(2);
+    };
+
+    let totalQuantity = 0;
     const itemsRows = (order.items || []).map(i => {
-      const lineTotal = currency + parseFloat(i.total || (i.price * i.quantity)).toFixed(2);
-      const unitRate = currency + parseFloat(i.price).toFixed(2);
+      const qty = parseFloat(i.quantity) || 1;
+      totalQuantity += qty;
+      const price = parseFloat(i.price) || 0;
+      const total = parseFloat(i.total !== undefined ? i.total : (qty * price));
+      const lineTotal = fmtMoney(total);
+      const unitRate = fmtMoney(price);
       const taxTag = showItemTax ? ` <span style="font-size:10px; color:#555;">(${i.gst_rate || 5}%)</span>` : '';
       const hsnLine = showHsn && (i.hsn_code || '996331') ? `<div style="font-size:10px; color:#555;">HSN: ${i.hsn_code || '996331'}</div>` : '';
 
       return `
         <tr>
-          <td style="text-align:left; padding:3px 0; vertical-align:top; word-break:break-word;">
-            <div>${i.name}${taxTag}</div>
+          <td style="text-align:left; padding:2px 0; vertical-align:top; word-break:break-word;">
+            <div>${i.name || i.item_name || 'Item'}${taxTag}</div>
             ${hsnLine}
           </td>
-          <td style="text-align:center; padding:3px 0; vertical-align:top; white-space:nowrap;">${i.quantity}</td>
-          ${showRate ? `<td style="text-align:right; padding:3px 0; vertical-align:top; white-space:nowrap;">${unitRate}</td>` : ''}
-          <td style="text-align:right; padding:3px 0; vertical-align:top; white-space:nowrap;">${lineTotal}</td>
+          <td style="text-align:right; padding:2px 4px; vertical-align:top; white-space:nowrap;">${fmtMoney(qty)}</td>
+          ${showRate ? `<td style="text-align:right; padding:2px 4px; vertical-align:top; white-space:nowrap;">${unitRate}</td>` : ''}
+          <td style="text-align:right; padding:2px 0; vertical-align:top; white-space:nowrap;">${lineTotal}</td>
         </tr>
       `;
     }).join('');
+
+    const customerDisplay = order.customer_name ? (order.customer_name + (order.customer_phone ? ` (${order.customer_phone})` : '')) : 'Cash Sale';
 
     return `<!DOCTYPE html>
 <html>
@@ -929,14 +940,14 @@
   <title>Receipt ${order.order_no || ''}</title>
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Courier New', Courier, monospace; width: ${receiptWidth}; margin: 0 auto; padding: 6px 2px; font-size: ${fontSize}; color: #000; background: #fff; line-height: 1.3; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; width: ${receiptWidth}; margin: 0 auto; padding: 4px 2px; font-size: ${fontSize}; color: #000; background: #fff; line-height: 1.25; }
     .center { text-align: center; }
     .right { text-align: right; }
-    .divider { border-top: 1px dashed #000; margin: 5px 0; }
-    .double { border-top: 2px double #000; margin: 5px 0; }
-    .title { font-size: ${is58mm ? '14px' : '16px'}; font-weight: bold; word-break: break-word; }
+    .divider { border-top: 1px solid #000; margin: 4px 0; }
+    .double { border-top: 1px solid #000; margin: 4px 0; }
+    .title { font-size: ${is58mm ? '15px' : '17px'}; font-weight: bold; word-break: break-word; line-height: 1.2; margin-bottom: 2px; }
     table { width: 100%; border-collapse: collapse; }
-    .meta-line { font-size: ${is58mm ? '10px' : '11px'}; word-break: break-word; }
+    .meta-line { font-size: ${is58mm ? '10px' : '11px'}; word-break: break-word; line-height: 1.2; }
   </style>
 </head>
 <body>
@@ -944,31 +955,31 @@
     ${showLogo ? `<img src="${s.restaurant_logo}" style="max-height:45px; max-width:130px; margin:0 auto 4px auto; display:block; object-fit:contain;" />` : ''}
     ${showName ? `<div class="title">${s.restaurant_name || 'Restaurant'}</div>` : ''}
     ${showAddr ? `<div class="meta-line">${s.restaurant_address}</div>` : ''}
-    ${showPhone ? `<div class="meta-line">Phone: ${s.restaurant_phone}</div>` : ''}
-    ${showGstin ? `<div class="meta-line">GSTIN: ${s.gstin}</div>` : ''}
+    ${showGstin ? `<div class="meta-line">GST Number: ${s.gstin}</div>` : ''}
+    ${showPhone ? `<div class="meta-line">Phone Number: ${s.restaurant_phone}</div>` : ''}
     ${showFssai ? `<div class="meta-line">FSSAI: ${s.fssai_no}</div>` : ''}
   </div>
 
-  <div class="double"></div>
-  ${(s.receipt_header_title || 'TAX INVOICE').trim() ? `<div class="center" style="font-weight:bold; letter-spacing:0.5px;">${s.receipt_header_title || 'TAX INVOICE'}</div>` : ''}
+  ${(s.receipt_header_title || '').trim() && (s.receipt_header_title || '').trim() !== 'TAX INVOICE' ? `<div class="center" style="font-weight:bold; font-size:11px; margin-top:3px;">${s.receipt_header_title}</div>` : ''}
+
   <div class="divider"></div>
 
   ${showOrderNo ? `<div>Bill No: <b>${order.order_no || 'DRAFT'}</b></div>` : ''}
-  ${showDate ? `<div>Date: ${new Date(order.created_at || Date.now()).toLocaleString('en-IN')}</div>` : ''}
-  ${showTable ? `<div>Table: ${order.table_no}</div>` : ''}
-  ${showOrderType ? `<div>Type: ${(order.order_type || 'dine_in').toUpperCase()}</div>` : ''}
-  ${showCashier ? `<div>Cashier: ${order.user_name}</div>` : ''}
-  ${showCustomer ? `<div>Customer: ${order.customer_name || ''}${order.customer_phone ? ` (${order.customer_phone})` : ''}</div>` : ''}
+  ${showDate ? `<div>Created On: ${new Date(order.created_at || Date.now()).toLocaleString('en-IN', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', hour12:true })}</div>` : ''}
+  ${showCustomer ? `<div>Bill To: ${customerDisplay}</div>` : ''}
   ${showCustGstin ? `<div>Cust GSTIN: ${order.customer_gstin}</div>` : ''}
+  ${showTable ? `<div>Table: ${order.table_no}</div>` : ''}
+  ${showOrderType && order.order_type !== 'dine_in' ? `<div>Type: ${(order.order_type || '').toUpperCase()}</div>` : ''}
+  ${showCashier ? `<div>Cashier: ${order.user_name}</div>` : ''}
 
   <div class="divider"></div>
   <table>
     <thead>
-      <tr style="border-bottom: 1px dashed #000;">
-        <th style="text-align:left;">Item</th>
-        <th style="text-align:center; width:${is58mm ? '28px' : '36px'};">Qty</th>
-        ${showRate ? `<th style="text-align:right; width:${is58mm ? '48px' : '62px'};">Rate</th>` : ''}
-        <th style="text-align:right; width:${is58mm ? '52px' : '66px'};">Amt</th>
+      <tr style="border-bottom: 1px solid #000; font-weight:bold;">
+        <th style="text-align:left; padding-bottom:3px;">Item Name</th>
+        <th style="text-align:right; width:${is58mm ? '30px' : '38px'}; padding-bottom:3px;">Qty</th>
+        ${showRate ? `<th style="text-align:right; width:${is58mm ? '42px' : '54px'}; padding-bottom:3px;">Rate</th>` : ''}
+        <th style="text-align:right; width:${is58mm ? '46px' : '58px'}; padding-bottom:3px;">Total</th>
       </tr>
     </thead>
     <tbody>${itemsRows}</tbody>
@@ -976,44 +987,48 @@
   <div class="divider"></div>
 
   <table>
-    ${showSubtotal ? `<tr><td>${subtotalLabel}</td><td class="right">${currency}${parseFloat(displaySubtotal).toFixed(2)}</td></tr>` : ''}
-    ${order.discount_amount > 0 ? `<tr><td>Discount:</td><td class="right">-${currency}${parseFloat(order.discount_amount).toFixed(2)}</td></tr>` : ''}
-    ${showTaxBreakdown && order.cgst > 0 ? `<tr><td>CGST:</td><td class="right">${currency}${parseFloat(order.cgst).toFixed(2)}</td></tr>` : ''}
-    ${showTaxBreakdown && order.sgst > 0 ? `<tr><td>SGST:</td><td class="right">${currency}${parseFloat(order.sgst).toFixed(2)}</td></tr>` : ''}
-    ${order.round_off ? `<tr><td>Round Off:</td><td class="right">${currency}${parseFloat(order.round_off).toFixed(2)}</td></tr>` : ''}
-    <tr style="font-weight:bold; font-size:${is58mm ? '13px' : '14px'}; border-top:1px dashed #000;">
-      <td style="padding-top:4px;">Grand Total:</td>
-      <td class="right" style="padding-top:4px;">${currency}${parseFloat(order.total || 0).toFixed(2)}</td>
-    </tr>
-    ${showWords ? `
-      <tr>
-        <td colspan="2" style="font-size:10px; font-style:italic; padding-top:2px; word-break:break-word;">
-          ${numberToWordsINR(order.total || 0)}
-        </td>
-      </tr>
-    ` : ''}
-    ${showPayment ? `<tr><td>Payment:</td><td class="right">${(order.payment_mode || 'cash').toUpperCase()}</td></tr>` : ''}
+    <tr><td>Total Items: ${(order.items || []).length}</td><td class="right"></td></tr>
+    <tr><td>Total Quantity: ${fmtMoney(totalQuantity)}</td><td class="right"></td></tr>
+    ${showSubtotal ? `<tr><td>${subtotalLabel}</td><td class="right">${fmtMoney(displaySubtotal)}</td></tr>` : ''}
+    ${order.discount_amount > 0 ? `<tr><td>Discount</td><td class="right">-${fmtMoney(order.discount_amount)}</td></tr>` : ''}
+    ${showTaxBreakdown && order.cgst > 0 ? `<tr><td>CGST</td><td class="right">${fmtMoney(order.cgst)}</td></tr>` : ''}
+    ${showTaxBreakdown && order.sgst > 0 ? `<tr><td>SGST</td><td class="right">${fmtMoney(order.sgst)}</td></tr>` : ''}
+    ${order.round_off ? `<tr><td>Round Off</td><td class="right">${fmtMoney(order.round_off)}</td></tr>` : ''}
   </table>
 
-  ${showNotes ? `
+  <div class="divider"></div>
+  <div class="center" style="font-weight:bold; font-size:${is58mm ? '15px' : '17px'}; padding:2px 0;">
+    Total ${fmtMoney(order.total || 0)}
+  </div>
+  <div class="divider"></div>
+
+  ${showPayment ? `
+    <table>
+      <tr><td>Mode of Payment</td><td class="right">${(order.payment_mode || 'cash').toLowerCase()}</td></tr>
+      <tr><td>Received</td><td class="right">${fmtMoney(order.total || 0)}</td></tr>
+    </table>
     <div class="divider"></div>
-    <div style="font-size:11px;"><b>Note:</b> ${order.notes}</div>
   ` : ''}
 
-  ${showFooter && (s.footer_text || 'Thank you! Visit again!').trim() ? `
+  ${showWords ? `
+    <div style="font-size:10px; font-style:italic; padding:2px 0; word-break:break-word;">
+      ${numberToWordsINR(order.total || 0)}
+    </div>
     <div class="divider"></div>
-    <div class="center" style="margin-top:6px; font-weight:600;">${s.footer_text || 'Thank you! Visit again!'}</div>
+  ` : ''}
+
+  ${showNotes ? `
+    <div style="font-size:11px;"><b>Note:</b> ${order.notes}</div>
+    <div class="divider"></div>
+  ` : ''}
+
+  ${showFooter && (s.footer_text || 'Thank You! Visit Again!').trim() ? `
+    <div class="center" style="margin-top:4px; font-weight:600;">${s.footer_text || 'Thank You! Visit Again!'}</div>
   ` : ''}
 
   ${showTerms && s.terms_text ? `
-    <div style="margin-top:6px; font-size:10px; text-align:center; color:#333; line-height:1.25; white-space:pre-wrap;">
+    <div style="margin-top:4px; font-size:10px; text-align:center; color:#333; line-height:1.2; white-space:pre-wrap;">
       ${s.terms_text}
-    </div>
-  ` : ''}
-
-  ${showBranding ? `
-    <div class="center" style="margin-top:8px; font-size:9px; color:#666; letter-spacing:0.5px;">
-      Made with ❤️ by RestoBill
     </div>
   ` : ''}
 </body>
