@@ -659,8 +659,8 @@ window.SettingsUI = {
                   <div class="form-group">
                     <label>Thermal Paper Width</label>
                     <select name="printer_width" id="printer-width-select">
-                      <option value="80" ${s.printer_width !== '58' ? 'selected' : ''}>80mm (Standard 3-Inch POS)</option>
-                      <option value="58" ${s.printer_width === '58' ? 'selected' : ''}>58mm (Compact 2-Inch Thermal)</option>
+                      <option value="58" ${s.printer_width !== '80' ? 'selected' : ''}>58mm (Compact 2-Inch Thermal - Recommended)</option>
+                      <option value="80" ${s.printer_width === '80' ? 'selected' : ''}>80mm (Standard 3-Inch POS)</option>
                     </select>
                   </div>
                   <div class="form-group">
@@ -1026,12 +1026,12 @@ window.SettingsUI = {
                       <span id="preview-source-label">⚡ Latest Bill</span>
                     </button>
                     <span id="preview-width-badge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:var(--accent-primary-glow);color:var(--accent-primary);">
-                      ${s.printer_type === 'standard' ? 'A4 Invoice' : (s.printer_width === '58' ? '58mm' : '80mm')}
+                      ${s.printer_type === 'standard' ? 'A4 Invoice' : (s.printer_width === '80' ? '80mm' : '58mm')}
                     </span>
                   </div>
                 </div>
 
-                <div class="printer-preview-paper-card ${s.printer_type === 'standard' ? 'width-standard' : (s.printer_width === '58' ? 'width-58' : 'width-80')}" id="preview-paper-box">
+                <div class="printer-preview-paper-card ${s.printer_type === 'standard' ? 'width-standard' : (s.printer_width === '80' ? 'width-80' : 'width-58')}" id="preview-paper-box">
                   <iframe id="printer-live-preview-frame" class="printer-preview-iframe" sandbox="allow-same-origin allow-scripts"></iframe>
                 </div>
 
@@ -1155,14 +1155,14 @@ window.SettingsUI = {
       if (paperBox) {
         if (currentS.printer_type === 'standard') {
           paperBox.className = 'printer-preview-paper-card width-standard';
-        } else if (currentS.printer_width === '58') {
-          paperBox.className = 'printer-preview-paper-card width-58';
-        } else {
+        } else if (currentS.printer_width === '80') {
           paperBox.className = 'printer-preview-paper-card width-80';
+        } else {
+          paperBox.className = 'printer-preview-paper-card width-58';
         }
       }
       if (widthBadge) {
-        widthBadge.textContent = currentS.printer_type === 'standard' ? 'A4 Invoice' : (currentS.printer_width === '58' ? '58mm' : '80mm');
+        widthBadge.textContent = currentS.printer_type === 'standard' ? 'A4 Invoice' : (currentS.printer_width === '80' ? '80mm' : '58mm');
       }
 
       try {

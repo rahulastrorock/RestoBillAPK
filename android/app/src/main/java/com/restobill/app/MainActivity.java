@@ -158,7 +158,7 @@ public class MainActivity extends BridgeActivity {
                 try {
                     JSONObject orderObj = new JSONObject(orderJson);
                     JSONObject settingsObj = new JSONObject(settingsJson);
-                    byte[] escPosBytes = BluetoothPrinterHelper.buildReceiptEscPos(orderObj, settingsObj);
+                    byte[] escPosBytes = BluetoothPrinterHelper.buildReceiptEscPos(orderObj, settingsObj, targetDevice);
                     return BluetoothPrinterHelper.printBytesToDevice(MainActivity.this, targetDevice, escPosBytes);
                 } catch (Exception e) {
                     return BluetoothPrinterHelper.createResult(false, "Bluetooth print error: " + e.getMessage());
@@ -179,7 +179,7 @@ public class MainActivity extends BridgeActivity {
             public String testPrintBluetooth(final String targetDevice, final String settingsJson) {
                 try {
                     JSONObject settingsObj = new JSONObject(settingsJson);
-                    byte[] escPosBytes = BluetoothPrinterHelper.buildTestReceiptEscPos(settingsObj);
+                    byte[] escPosBytes = BluetoothPrinterHelper.buildTestReceiptEscPos(settingsObj, targetDevice);
                     return BluetoothPrinterHelper.printBytesToDevice(MainActivity.this, targetDevice, escPosBytes);
                 } catch (Exception e) {
                     return BluetoothPrinterHelper.createResult(false, "Bluetooth test print error: " + e.getMessage());

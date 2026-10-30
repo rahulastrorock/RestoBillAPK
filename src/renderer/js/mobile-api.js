@@ -375,7 +375,7 @@
         ['current_invoice_no', '0'],
         ['financial_year', '2026-27'],
         ['printer_type', 'thermal'],
-        ['printer_width', '80'],
+        ['printer_width', '58'],
         ['printer_device', ''],
         ['silent_print', '0'],
         ['print_copies', '1'],
@@ -438,6 +438,18 @@
       if (!gstMigrated) {
         dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('gst_inclusive', '0')").run();
         dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('gst_exclusive_migrated_v1', '1')").run();
+      }
+    } catch (e) {}
+
+    // Ensure printer_width defaults to 58mm compact thermal receipt for mobile
+    try {
+      const printerMigrated = dbWrap.prepare("SELECT value FROM settings WHERE key = 'printer_width_58_migrated_v1'").get()?.value;
+      if (!printerMigrated) {
+        const curPw = dbWrap.prepare("SELECT value FROM settings WHERE key = 'printer_width'").get()?.value;
+        if (!curPw || curPw === '80') {
+          dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('printer_width', '58')").run();
+        }
+        dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('printer_width_58_migrated_v1', '1')").run();
       }
     } catch (e) {}
 
@@ -867,7 +879,7 @@
     }
 
     // ── Thermal ESC/POS Receipt Layout (58mm or 80mm) ───────────────
-    const is58mm = String(s.printer_width) === '58';
+    const is58mm = String(s.printer_width || '58') !== '80';
     const receiptWidth = is58mm ? '52mm' : '72mm';
     const fontSize = is58mm ? '11px' : '12px';
 
@@ -987,8 +999,6 @@
   <div class="divider"></div>
 
   <table>
-    <tr><td>Total Items: ${(order.items || []).length}</td><td class="right"></td></tr>
-    <tr><td>Total Quantity: ${fmtMoney(totalQuantity)}</td><td class="right"></td></tr>
     ${showSubtotal ? `<tr><td>${subtotalLabel}</td><td class="right">${fmtMoney(displaySubtotal)}</td></tr>` : ''}
     ${order.discount_amount > 0 ? `<tr><td>Discount</td><td class="right">-${fmtMoney(order.discount_amount)}</td></tr>` : ''}
     ${showTaxBreakdown && order.cgst > 0 ? `<tr><td>CGST</td><td class="right">${fmtMoney(order.cgst)}</td></tr>` : ''}

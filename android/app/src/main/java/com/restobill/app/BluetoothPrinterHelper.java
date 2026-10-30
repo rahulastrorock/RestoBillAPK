@@ -92,38 +92,62 @@ public class BluetoothPrinterHelper {
      * Falls back to clean text mode ESC/POS if graphics generation fails.
      */
     public static byte[] buildReceiptEscPos(JSONObject order, JSONObject settings) {
+        return buildReceiptEscPos(order, settings, null);
+    }
+
+    public static byte[] buildReceiptEscPos(JSONObject order, JSONObject settings, String targetDevice) {
         try {
-            byte[] rasterBytes = buildReceiptBitmapEscPos(order, settings);
+            byte[] rasterBytes = buildReceiptBitmapEscPos(order, settings, targetDevice);
             if (rasterBytes != null && rasterBytes.length > 0) {
                 return rasterBytes;
             }
         } catch (Throwable t) {
             Log.w(TAG, "Raster receipt generation encountered error, falling back to text ESC/POS", t);
         }
-        return buildReceiptEscPosText(order, settings);
+        return buildReceiptEscPosText(order, settings, targetDevice);
     }
 
     /**
      * Render receipt to Android Bitmap and convert to ESC/POS raster bit image (GS v 0).
      */
     public static byte[] buildReceiptBitmapEscPos(JSONObject order, JSONObject settings) {
-        Bitmap bitmap = renderReceiptBitmap(order, settings);
+        return buildReceiptBitmapEscPos(order, settings, null);
+    }
+
+    public static byte[] buildReceiptBitmapEscPos(JSONObject order, JSONObject settings, String targetDevice) {
+        Bitmap bitmap = renderReceiptBitmap(order, settings, targetDevice);
         if (bitmap == null) return new byte[0];
         return bitmapToEscPosRaster(bitmap);
     }
 
     /**
-     * Creates a high-contrast monochrome Android Bitmap of the receipt matching the
-     * clean, compact layout in Image 2.
+     * Creates a high-contrast monochrome Android Bitmap of the receipt matching standard 58mm POS receipt.
      */
     public static Bitmap renderReceiptBitmap(JSONObject order, JSONObject settings) {
+        return renderReceiptBitmap(order, settings, null);
+    }
+
+    public static Bitmap renderReceiptBitmap(JSONObject order, JSONObject settings, String targetDevice) {
         String widthSetting = settings != null ? settings.optString("printer_width", "58") : "58";
-        int paperWidth = "80".equals(widthSetting) ? 576 : 384;
+        boolean is80mm = "80".equals(widthSetting);
+
+        // Portable Bluetooth printers on Android are predominantly 58mm.
+        // If device name clearly indicates a 58mm printer model, enforce 58mm.
+        if (is80mm && targetDevice != null) {
+            String devLower = targetDevice.toLowerCase(Locale.US);
+            if (devLower.contains("58") || devLower.contains("pt-210") || devLower.contains("mpt")
+                    || devLower.contains("rpp02") || devLower.contains("mtp-2") || devLower.contains("pos58")
+                    || devLower.contains("innerprinter")) {
+                is80mm = false;
+            }
+        }
+
+        int paperWidth = is80mm ? 576 : 384;
 
         // Pass 1: Measure exact height required
         float measuredHeight = drawReceipt(null, order, settings, paperWidth, 8f);
-        // Add 36px bottom margin so tear bar clears footer cleanly without wasting paper
-        int totalHeight = (int) Math.ceil(measuredHeight + 36f);
+        // Add 30px bottom margin so tear bar clears footer cleanly without wasting paper
+        int totalHeight = (int) Math.ceil(measuredHeight + 30f);
 
         Bitmap bitmap = Bitmap.createBitmap(paperWidth, totalHeight, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
@@ -139,15 +163,17 @@ public class BluetoothPrinterHelper {
      */
     private static float drawReceipt(Canvas canvas, JSONObject order, JSONObject settings, int paperWidth, float startY) {
         boolean is80mm = paperWidth > 400;
-        float margin = is80mm ? 14f : 8f;
-        float contentWidth = paperWidth - (margin * 2);
+        float margin = 8f;
+        float rightMargin = is80mm ? paperWidth - 14f : paperWidth - 12f; // 372f for 58mm: ensures zero clipping on right edge
+        float contentWidth = rightMargin - margin; // 364f for 58mm
 
-        float titleSize = is80mm ? 28f : 21.5f;
-        float headerMetaSize = is80mm ? 19f : 16f;
-        float normalSize = is80mm ? 20f : 16.5f;
-        float smallSize = is80mm ? 17f : 14f;
-        float grandTotalSize = is80mm ? 28f : 22.5f;
-        float lineHeight = is80mm ? 29f : 23.5f;
+        float titleSize = is80mm ? 26f : 20f;
+        float headerMetaSize = is80mm ? 18f : 14.5f;
+        float normalSize = is80mm ? 19f : 15f;
+        float boldSize = is80mm ? 19f : 15f;
+        float smallSize = is80mm ? 16f : 13f;
+        float grandTotalSize = is80mm ? 26f : 21f;
+        float lineHeight = is80mm ? 27f : 22f;
 
         Paint titlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         titlePaint.setColor(Color.BLACK);
@@ -156,7 +182,7 @@ public class BluetoothPrinterHelper {
 
         Paint boldPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         boldPaint.setColor(Color.BLACK);
-        boldPaint.setTextSize(normalSize);
+        boldPaint.setTextSize(boldSize);
         boldPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
 
         Paint normalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -190,8 +216,9 @@ public class BluetoothPrinterHelper {
         if (isOptionEnabled(settings, "print_show_restaurant_name", true) && !restaurantName.isEmpty()) {
             List<String> nameLines = wrapText(restaurantName, titlePaint, contentWidth);
             for (String line : nameLines) {
-                float x = margin + ((contentWidth - titlePaint.measureText(line)) / 2f);
-                if (canvas != null) canvas.drawText(line, Math.max(margin, x), y + titleSize, titlePaint);
+                float textW = titlePaint.measureText(line);
+                float x = margin + Math.max(0, (contentWidth - textW) / 2f);
+                if (canvas != null) canvas.drawText(line, x, y + titleSize, titlePaint);
                 y += (titleSize + 4f);
             }
             y += 2f;
@@ -203,45 +230,59 @@ public class BluetoothPrinterHelper {
             if (isOptionEnabled(settings, "print_show_address", true) && !address.isEmpty()) {
                 List<String> addrLines = wrapText(address, metaPaint, contentWidth);
                 for (String line : addrLines) {
-                    float x = margin + ((contentWidth - metaPaint.measureText(line)) / 2f);
-                    if (canvas != null) canvas.drawText(line, Math.max(margin, x), y + headerMetaSize, metaPaint);
+                    float textW = metaPaint.measureText(line);
+                    float x = margin + Math.max(0, (contentWidth - textW) / 2f);
+                    if (canvas != null) canvas.drawText(line, x, y + headerMetaSize, metaPaint);
                     y += (headerMetaSize + 3.5f);
                 }
             }
             String gstin = settings.optString("gstin", "").trim();
             if (isOptionEnabled(settings, "print_show_gstin", true) && !gstin.isEmpty()) {
                 String line = "GST Number: " + gstin;
-                float x = margin + ((contentWidth - metaPaint.measureText(line)) / 2f);
-                if (canvas != null) canvas.drawText(line, Math.max(margin, x), y + headerMetaSize, metaPaint);
-                y += (headerMetaSize + 3.5f);
+                List<String> gstinLines = wrapText(line, metaPaint, contentWidth);
+                for (String gl : gstinLines) {
+                    float textW = metaPaint.measureText(gl);
+                    float x = margin + Math.max(0, (contentWidth - textW) / 2f);
+                    if (canvas != null) canvas.drawText(gl, x, y + headerMetaSize, metaPaint);
+                    y += (headerMetaSize + 3.5f);
+                }
             }
             String phone = settings.optString("restaurant_phone", "").trim();
             if (isOptionEnabled(settings, "print_show_phone", true) && !phone.isEmpty()) {
                 String line = "Phone Number: " + phone;
-                float x = margin + ((contentWidth - metaPaint.measureText(line)) / 2f);
-                if (canvas != null) canvas.drawText(line, Math.max(margin, x), y + headerMetaSize, metaPaint);
-                y += (headerMetaSize + 3.5f);
+                List<String> phoneLines = wrapText(line, metaPaint, contentWidth);
+                for (String pl : phoneLines) {
+                    float textW = metaPaint.measureText(pl);
+                    float x = margin + Math.max(0, (contentWidth - textW) / 2f);
+                    if (canvas != null) canvas.drawText(pl, x, y + headerMetaSize, metaPaint);
+                    y += (headerMetaSize + 3.5f);
+                }
             }
             String fssai = settings.optString("fssai_no", "").trim();
             if (isOptionEnabled(settings, "print_show_fssai", true) && !fssai.isEmpty()) {
                 String line = "FSSAI: " + fssai;
-                float x = margin + ((contentWidth - metaPaint.measureText(line)) / 2f);
-                if (canvas != null) canvas.drawText(line, Math.max(margin, x), y + headerMetaSize, metaPaint);
-                y += (headerMetaSize + 3.5f);
+                List<String> fssaiLines = wrapText(line, metaPaint, contentWidth);
+                for (String fl : fssaiLines) {
+                    float textW = metaPaint.measureText(fl);
+                    float x = margin + Math.max(0, (contentWidth - textW) / 2f);
+                    if (canvas != null) canvas.drawText(fl, x, y + headerMetaSize, metaPaint);
+                    y += (headerMetaSize + 3.5f);
+                }
             }
         }
 
         // Receipt Header Title (e.g. TAX INVOICE) if customized
         String headerTitle = settings != null ? settings.optString("receipt_header_title", "").trim() : "";
         if (!headerTitle.isEmpty() && !"TAX INVOICE".equalsIgnoreCase(headerTitle)) {
-            float x = margin + ((contentWidth - boldPaint.measureText(headerTitle)) / 2f);
-            if (canvas != null) canvas.drawText(headerTitle, Math.max(margin, x), y + normalSize, boldPaint);
-            y += (normalSize + 3.5f);
+            float textW = boldPaint.measureText(headerTitle);
+            float x = margin + Math.max(0, (contentWidth - textW) / 2f);
+            if (canvas != null) canvas.drawText(headerTitle, x, y + boldSize, boldPaint);
+            y += (boldSize + 3.5f);
         }
 
         // Solid Divider Line
         y += 4f;
-        if (canvas != null) canvas.drawLine(margin, y, paperWidth - margin, y, linePaint);
+        if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
         y += 5f;
 
         // 2. Bill Meta (Left-aligned, clean, compact)
@@ -299,37 +340,36 @@ public class BluetoothPrinterHelper {
 
         // Solid Divider Line
         y += 4f;
-        if (canvas != null) canvas.drawLine(margin, y, paperWidth - margin, y, linePaint);
+        if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
         y += 5f;
 
-        // 3. Table Column Positions
+        // 3. Table Column Positions - Perfectly squeezed for 58mm / 80mm
+        boolean showRate = isOptionEnabled(settings, "print_show_rate", true);
         float colItemX = margin;
-        float colQtyRight = is80mm ? margin + 300f : margin + 195f;
-        float colRateRight = is80mm ? margin + 430f : margin + 275f;
-        float colTotalRight = paperWidth - margin;
-        float maxNameWidth = colQtyRight - colItemX - 10f;
+        float colTotalRight = rightMargin; // 372f on 58mm (safely within 384 head)
+        float colRateRight = is80mm ? margin + 440f : 295f;
+        float colQtyRight = is80mm ? (showRate ? margin + 340f : margin + 400f) : (showRate ? 230f : 270f);
+        float maxNameWidth = colQtyRight - colItemX - 10f; // 212f for 58mm with rate
 
         // Table Header
         if (canvas != null) {
-            canvas.drawText("Item Name", colItemX, y + normalSize, boldPaint);
-            drawRightAlignedText(canvas, "Qty", colQtyRight, y + normalSize, boldPaint);
-            drawRightAlignedText(canvas, "Rate", colRateRight, y + normalSize, boldPaint);
-            drawRightAlignedText(canvas, "Total", colTotalRight, y + normalSize, boldPaint);
+            canvas.drawText("Item Name", colItemX, y + boldSize, boldPaint);
+            drawRightAlignedText(canvas, "Qty", colQtyRight, y + boldSize, boldPaint);
+            if (showRate) {
+                drawRightAlignedText(canvas, "Rate", colRateRight, y + boldSize, boldPaint);
+            }
+            drawRightAlignedText(canvas, "Total", colTotalRight, y + boldSize, boldPaint);
         }
         y += lineHeight;
 
         // Solid Divider Line
         y += 4f;
-        if (canvas != null) canvas.drawLine(margin, y, paperWidth - margin, y, linePaint);
+        if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
         y += 5f;
 
         // Items
         JSONArray items = order.optJSONArray("items");
-        int totalItemsCount = 0;
-        double totalQuantitySum = 0;
-
         if (items != null) {
-            totalItemsCount = items.length();
             for (int i = 0; i < items.length(); i++) {
                 JSONObject itm = items.optJSONObject(i);
                 if (itm == null) continue;
@@ -339,7 +379,6 @@ public class BluetoothPrinterHelper {
                 if (rawName.isEmpty()) rawName = itm.optString("title", "Item");
 
                 double qty = itm.optDouble("quantity", 1);
-                totalQuantitySum += qty;
                 double price = itm.optDouble("price", 0);
                 double total = itm.has("total") ? itm.optDouble("total") : (qty * price);
 
@@ -354,7 +393,9 @@ public class BluetoothPrinterHelper {
                 if (canvas != null) {
                     canvas.drawText(nameLines.get(0), colItemX, y + normalSize, normalPaint);
                     drawRightAlignedText(canvas, qtyStr, colQtyRight, y + normalSize, normalPaint);
-                    drawRightAlignedText(canvas, priceStr, colRateRight, y + normalSize, normalPaint);
+                    if (showRate) {
+                        drawRightAlignedText(canvas, priceStr, colRateRight, y + normalSize, normalPaint);
+                    }
                     drawRightAlignedText(canvas, totalStr, colTotalRight, y + normalSize, normalPaint);
                 }
                 y += lineHeight;
@@ -371,21 +412,11 @@ public class BluetoothPrinterHelper {
 
         // Solid Divider Line
         y += 4f;
-        if (canvas != null) canvas.drawLine(margin, y, paperWidth - margin, y, linePaint);
+        if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
         y += 5f;
 
-        // 4. Totals / Summary Section
-        // Total Items
-        if (canvas != null) {
-            canvas.drawText("Total Items: " + totalItemsCount, margin, y + normalSize, normalPaint);
-        }
-        y += lineHeight;
-
-        // Total Quantity
-        if (canvas != null) {
-            canvas.drawText("Total Quantity: " + formatMoney(totalQuantitySum), margin, y + normalSize, normalPaint);
-        }
-        y += lineHeight;
+        // 4. Totals / Summary Section (Total Items and Total Quantity removed as requested)
+        float labelX = is80mm ? margin + 60f : margin + 15f;
 
         // Sub Total
         if (isOptionEnabled(settings, "print_show_subtotal", true)) {
@@ -395,7 +426,7 @@ public class BluetoothPrinterHelper {
             double displaySubtotal = (isInclusive && taxable > 0) ? taxable : subtotal;
             String label = isInclusive ? "Taxable Amt" : "Sub Total";
             if (canvas != null) {
-                canvas.drawText(label, margin + (contentWidth * 0.35f), y + normalSize, normalPaint);
+                canvas.drawText(label, labelX, y + normalSize, normalPaint);
                 drawRightAlignedText(canvas, formatMoney(displaySubtotal), colTotalRight, y + normalSize, normalPaint);
             }
             y += lineHeight;
@@ -405,7 +436,7 @@ public class BluetoothPrinterHelper {
         double discount = order.optDouble("discount_amount", 0);
         if (discount > 0) {
             if (canvas != null) {
-                canvas.drawText("Discount", margin + (contentWidth * 0.35f), y + normalSize, normalPaint);
+                canvas.drawText("Discount", labelX, y + normalSize, normalPaint);
                 drawRightAlignedText(canvas, "-" + formatMoney(discount), colTotalRight, y + normalSize, normalPaint);
             }
             y += lineHeight;
@@ -416,7 +447,7 @@ public class BluetoothPrinterHelper {
             double cgst = order.optDouble("cgst", 0);
             if (cgst > 0) {
                 if (canvas != null) {
-                    canvas.drawText("CGST", margin + (contentWidth * 0.35f), y + normalSize, normalPaint);
+                    canvas.drawText("CGST", labelX, y + normalSize, normalPaint);
                     drawRightAlignedText(canvas, formatMoney(cgst), colTotalRight, y + normalSize, normalPaint);
                 }
                 y += lineHeight;
@@ -424,7 +455,7 @@ public class BluetoothPrinterHelper {
             double sgst = order.optDouble("sgst", 0);
             if (sgst > 0) {
                 if (canvas != null) {
-                    canvas.drawText("SGST", margin + (contentWidth * 0.35f), y + normalSize, normalPaint);
+                    canvas.drawText("SGST", labelX, y + normalSize, normalPaint);
                     drawRightAlignedText(canvas, formatMoney(sgst), colTotalRight, y + normalSize, normalPaint);
                 }
                 y += lineHeight;
@@ -435,7 +466,7 @@ public class BluetoothPrinterHelper {
         double roundOff = order.optDouble("round_off", 0);
         if (Math.abs(roundOff) > 0.001) {
             if (canvas != null) {
-                canvas.drawText("Round Off", margin + (contentWidth * 0.35f), y + normalSize, normalPaint);
+                canvas.drawText("Round Off", labelX, y + normalSize, normalPaint);
                 drawRightAlignedText(canvas, String.format(Locale.US, "%+.2f", roundOff), colTotalRight, y + normalSize, normalPaint);
             }
             y += lineHeight;
@@ -443,22 +474,22 @@ public class BluetoothPrinterHelper {
 
         // Solid Divider Line
         y += 4f;
-        if (canvas != null) canvas.drawLine(margin, y, paperWidth - margin, y, linePaint);
+        if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
         y += 5f;
 
         // 5. Grand Total (Centered, Bold, crisp, prominent)
         double grandTotal = order.optDouble("total", 0);
         String grandTotalStr = "Total " + formatMoney(grandTotal);
         float totalWidth = totalPaint.measureText(grandTotalStr);
-        float totalX = margin + ((contentWidth - totalWidth) / 2f);
+        float totalX = margin + Math.max(0, (contentWidth - totalWidth) / 2f);
         if (canvas != null) {
-            canvas.drawText(grandTotalStr, Math.max(margin, totalX), y + grandTotalSize, totalPaint);
+            canvas.drawText(grandTotalStr, totalX, y + grandTotalSize, totalPaint);
         }
         y += (grandTotalSize + 6f);
 
         // Solid Divider Line
         y += 4f;
-        if (canvas != null) canvas.drawLine(margin, y, paperWidth - margin, y, linePaint);
+        if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
         y += 5f;
 
         // 6. Payment Mode
@@ -478,7 +509,7 @@ public class BluetoothPrinterHelper {
 
             // Solid Divider Line
             y += 4f;
-            if (canvas != null) canvas.drawLine(margin, y, paperWidth - margin, y, linePaint);
+            if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
             y += 5f;
         }
 
@@ -490,7 +521,7 @@ public class BluetoothPrinterHelper {
             }
             y += lineHeight;
             y += 4f;
-            if (canvas != null) canvas.drawLine(margin, y, paperWidth - margin, y, linePaint);
+            if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
             y += 5f;
         }
 
@@ -498,8 +529,9 @@ public class BluetoothPrinterHelper {
         if (isOptionEnabled(settings, "print_show_footer", true)) {
             String footerText = settings != null ? settings.optString("footer_text", "Thank You! Visit Again!") : "Thank You! Visit Again!";
             if (!footerText.isEmpty()) {
-                float fx = margin + ((contentWidth - boldPaint.measureText(footerText)) / 2f);
-                if (canvas != null) canvas.drawText(footerText, Math.max(margin, fx), y + normalSize, boldPaint);
+                float fw = boldPaint.measureText(footerText);
+                float fx = margin + Math.max(0, (contentWidth - fw) / 2f);
+                if (canvas != null) canvas.drawText(footerText, fx, y + boldSize, boldPaint);
                 y += lineHeight;
             }
         }
@@ -510,14 +542,13 @@ public class BluetoothPrinterHelper {
             if (!terms.isEmpty()) {
                 List<String> termsLines = wrapText(terms, smallPaint, contentWidth);
                 for (String tLine : termsLines) {
-                    float tx = margin + ((contentWidth - smallPaint.measureText(tLine)) / 2f);
-                    if (canvas != null) canvas.drawText(tLine, Math.max(margin, tx), y + smallSize, smallPaint);
+                    float tw = smallPaint.measureText(tLine);
+                    float tx = margin + Math.max(0, (contentWidth - tw) / 2f);
+                    if (canvas != null) canvas.drawText(tLine, tx, y + smallSize, smallPaint);
                     y += (smallSize + 3f);
                 }
             }
         }
-
-        // NOTE: "Made with love by RestoBill" is intentionally removed as requested
 
         return y;
     }
@@ -598,6 +629,10 @@ public class BluetoothPrinterHelper {
      * formats numbers cleanly, and removes branding footer.
      */
     public static byte[] buildReceiptEscPosText(JSONObject order, JSONObject settings) {
+        return buildReceiptEscPosText(order, settings, null);
+    }
+
+    public static byte[] buildReceiptEscPosText(JSONObject order, JSONObject settings, String targetDevice) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try {
             // ESC @ -> Initialize printer
@@ -606,7 +641,16 @@ public class BluetoothPrinterHelper {
             out.write(new byte[]{0x1B, 0x21, 0x00});
 
             String widthSetting = settings != null ? settings.optString("printer_width", "58") : "58";
-            int maxCols = "80".equals(widthSetting) ? 48 : 32;
+            boolean is80mm = "80".equals(widthSetting);
+            if (is80mm && targetDevice != null) {
+                String devLower = targetDevice.toLowerCase(Locale.US);
+                if (devLower.contains("58") || devLower.contains("pt-210") || devLower.contains("mpt")
+                        || devLower.contains("rpp02") || devLower.contains("mtp-2") || devLower.contains("pos58")
+                        || devLower.contains("innerprinter")) {
+                    is80mm = false;
+                }
+            }
+            int maxCols = is80mm ? 48 : 32;
 
             // Header - Restaurant Name (Centered, Bold, normal size)
             String restaurantName = settings != null ? settings.optString("restaurant_name", "RestoBill Restaurant") : "RestoBill Restaurant";
@@ -731,10 +775,7 @@ public class BluetoothPrinterHelper {
 
             out.write((repeatChar('-', maxCols) + "\n").getBytes(StandardCharsets.US_ASCII));
 
-            // Totals Section
-            out.write(("Total Items: " + totalItemsCount + "\n").getBytes(StandardCharsets.US_ASCII));
-            out.write(("Total Quantity: " + formatMoney(totalQuantitySum) + "\n").getBytes(StandardCharsets.US_ASCII));
-
+            // Totals Section (Total Items and Total Quantity removed as requested)
             if (isOptionEnabled(settings, "print_show_subtotal", true)) {
                 boolean isInclusive = "1".equals(settings != null ? settings.optString("gst_inclusive", "0") : "0");
                 double subtotal = order.optDouble("subtotal", 0);
@@ -820,13 +861,26 @@ public class BluetoothPrinterHelper {
      * Uses compact styling with minimal paper feed.
      */
     public static byte[] buildTestReceiptEscPos(JSONObject settings) {
+        return buildTestReceiptEscPos(settings, null);
+    }
+
+    public static byte[] buildTestReceiptEscPos(JSONObject settings, String targetDevice) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try {
             out.write(new byte[]{0x1B, 0x40}); // Init
             out.write(new byte[]{0x1B, 0x21, 0x00}); // Normal font
 
             String widthSetting = settings != null ? settings.optString("printer_width", "58") : "58";
-            int maxCols = "80".equals(widthSetting) ? 48 : 32;
+            boolean is80mm = "80".equals(widthSetting);
+            if (is80mm && targetDevice != null) {
+                String devLower = targetDevice.toLowerCase(Locale.US);
+                if (devLower.contains("58") || devLower.contains("pt-210") || devLower.contains("mpt")
+                        || devLower.contains("rpp02") || devLower.contains("mtp-2") || devLower.contains("pos58")
+                        || devLower.contains("innerprinter")) {
+                    is80mm = false;
+                }
+            }
+            int maxCols = is80mm ? 48 : 32;
 
             out.write(new byte[]{0x1B, 0x61, 0x01}); // Center
             out.write(new byte[]{0x1B, 0x45, 0x01}); // Bold on
