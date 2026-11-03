@@ -380,19 +380,30 @@ window.POS = {
       return;
     }
 
-    grid.innerHTML = filtered.map(item => `
-      <div class="pos-item-card" draggable="true" data-item-id="${item.id}" title="Tap to add to bill | Hold or drag to rearrange">
-        <div class="item-card-top">
-          <span class="item-veg-badge ${item.is_veg ? 'veg' : 'non-veg'}" title="${item.is_veg ? 'Vegetarian' : 'Non-Vegetarian'}"></span>
-          <span class="item-drag-handle" title="Hold or drag to rearrange order">⋮⋮</span>
-          ${item.short_code ? `<span class="item-code">#${item.short_code}</span>` : ''}
+    const cartQtyMap = {};
+    (this.cart || []).forEach(ci => {
+      cartQtyMap[ci.menu_item_id] = (cartQtyMap[ci.menu_item_id] || 0) + (ci.quantity || 1);
+    });
+
+    grid.innerHTML = filtered.map(item => {
+      const qty = cartQtyMap[item.id] || 0;
+      const inCartClass = qty > 0 ? ' in-cart' : '';
+      const badgeHtml = qty > 0 ? `<span class="item-qty-badge">${qty}</span>` : '';
+      return `
+        <div class="pos-item-card${inCartClass}" draggable="true" data-item-id="${item.id}" title="Tap to add to bill | Hold or drag to rearrange">
+          ${badgeHtml}
+          <div class="item-card-top">
+            <span class="item-veg-badge ${item.is_veg ? 'veg' : 'non-veg'}" title="${item.is_veg ? 'Vegetarian' : 'Non-Vegetarian'}"></span>
+            <span class="item-drag-handle" title="Hold or drag to rearrange order">⋮⋮</span>
+            ${item.short_code ? `<span class="item-code">#${item.short_code}</span>` : ''}
+          </div>
+          <div class="item-name">${item.name}</div>
+          <div class="item-card-bottom">
+            <div class="item-price">${window.App.formatCurrency(item.price)}</div>
+          </div>
         </div>
-        <div class="item-name">${item.name}</div>
-        <div class="item-card-bottom">
-          <div class="item-price">${window.App.formatCurrency(item.price)}</div>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     // Attach drag and drop and click handlers
     this.setupCardDragAndDrop(grid);
@@ -817,6 +828,40 @@ window.POS = {
         floatingBar.classList.add('hidden');
       }
     }
+
+    this.updateCardHighlights();
+  },
+
+  updateCardHighlights() {
+    const grid = document.getElementById('pos-items-grid');
+    if (!grid) return;
+
+    const cartQtyMap = {};
+    (this.cart || []).forEach(ci => {
+      cartQtyMap[ci.menu_item_id] = (cartQtyMap[ci.menu_item_id] || 0) + (ci.quantity || 1);
+    });
+
+    const cards = grid.querySelectorAll('.pos-item-card');
+    cards.forEach(card => {
+      const itemId = parseInt(card.dataset.itemId, 10);
+      const qty = cartQtyMap[itemId] || 0;
+
+      let badge = card.querySelector('.item-qty-badge');
+      if (qty > 0) {
+        card.classList.add('in-cart');
+        if (!badge) {
+          badge = document.createElement('span');
+          badge.className = 'item-qty-badge';
+          card.prepend(badge);
+        }
+        badge.textContent = qty;
+      } else {
+        card.classList.remove('in-cart');
+        if (badge) {
+          badge.remove();
+        }
+      }
+    });
   },
 
   openEditItemPriceModal(index) {

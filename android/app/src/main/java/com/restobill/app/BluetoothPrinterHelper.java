@@ -142,7 +142,9 @@ public class BluetoothPrinterHelper {
             }
         }
 
-        int paperWidth = is80mm ? 576 : 384;
+        // 320 dots (40 bytes/line) for 58mm: safe for all portable Bluetooth thermal printers
+        // (many cheap 58mm printers have only ~300-310 dot printable area, not the nominal 384)
+        int paperWidth = is80mm ? 576 : 320;
 
         // Pass 1: Measure exact height required
         float measuredHeight = drawReceipt(null, order, settings, paperWidth, 8f);
@@ -163,17 +165,17 @@ public class BluetoothPrinterHelper {
      */
     private static float drawReceipt(Canvas canvas, JSONObject order, JSONObject settings, int paperWidth, float startY) {
         boolean is80mm = paperWidth > 400;
-        float margin = 8f;
-        float rightMargin = is80mm ? paperWidth - 14f : paperWidth - 12f; // 372f for 58mm: ensures zero clipping on right edge
-        float contentWidth = rightMargin - margin; // 364f for 58mm
+        float margin = is80mm ? 8f : 4f;
+        float rightMargin = is80mm ? paperWidth - 14f : paperWidth - 4f; // 316f for 320px-wide 58mm
+        float contentWidth = rightMargin - margin; // 312f for 58mm
 
-        float titleSize = is80mm ? 26f : 20f;
-        float headerMetaSize = is80mm ? 18f : 14.5f;
-        float normalSize = is80mm ? 19f : 15f;
-        float boldSize = is80mm ? 19f : 15f;
-        float smallSize = is80mm ? 16f : 13f;
-        float grandTotalSize = is80mm ? 26f : 21f;
-        float lineHeight = is80mm ? 27f : 22f;
+        float titleSize = is80mm ? 26f : 17f;
+        float headerMetaSize = is80mm ? 18f : 12f;
+        float normalSize = is80mm ? 19f : 12f;
+        float boldSize = is80mm ? 19f : 12f;
+        float smallSize = is80mm ? 16f : 10f;
+        float grandTotalSize = is80mm ? 26f : 16f;
+        float lineHeight = is80mm ? 27f : 17f;
 
         Paint titlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         titlePaint.setColor(Color.BLACK);
@@ -346,10 +348,10 @@ public class BluetoothPrinterHelper {
         // 3. Table Column Positions - Perfectly squeezed for 58mm / 80mm
         boolean showRate = isOptionEnabled(settings, "print_show_rate", true);
         float colItemX = margin;
-        float colTotalRight = rightMargin; // 372f on 58mm (safely within 384 head)
-        float colRateRight = is80mm ? margin + 440f : 295f;
-        float colQtyRight = is80mm ? (showRate ? margin + 340f : margin + 400f) : (showRate ? 230f : 270f);
-        float maxNameWidth = colQtyRight - colItemX - 10f; // 212f for 58mm with rate
+        float colTotalRight = rightMargin; // 316f on 58mm
+        float colRateRight = is80mm ? margin + 440f : 245f;
+        float colQtyRight = is80mm ? (showRate ? margin + 340f : margin + 400f) : (showRate ? 170f : 220f);
+        float maxNameWidth = colQtyRight - colItemX - 8f; // ~158f for 58mm with rate
 
         // Table Header
         if (canvas != null) {
@@ -416,7 +418,7 @@ public class BluetoothPrinterHelper {
         y += 5f;
 
         // 4. Totals / Summary Section (Total Items and Total Quantity removed as requested)
-        float labelX = is80mm ? margin + 60f : margin + 15f;
+        float labelX = is80mm ? margin + 60f : margin + 40f;
 
         // Sub Total
         if (isOptionEnabled(settings, "print_show_subtotal", true)) {
