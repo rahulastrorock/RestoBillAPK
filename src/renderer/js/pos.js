@@ -241,6 +241,7 @@ window.POS = {
         tabPosMenu.classList.add('active');
         tabPosCart?.classList.remove('active');
         if (this.cart.length > 0 && floatingBar) floatingBar.classList.remove('hidden');
+        this.updateCardHighlights();
       });
     }
 
@@ -270,6 +271,7 @@ window.POS = {
         tabPosMenu?.classList.add('active');
         tabPosCart?.classList.remove('active');
         if (this.cart.length > 0 && floatingBar) floatingBar.classList.remove('hidden');
+        this.updateCardHighlights();
       });
     }
   },
@@ -382,11 +384,12 @@ window.POS = {
 
     const cartQtyMap = {};
     (this.cart || []).forEach(ci => {
-      cartQtyMap[ci.menu_item_id] = (cartQtyMap[ci.menu_item_id] || 0) + (ci.quantity || 1);
+      const idStr = String(ci.menu_item_id);
+      cartQtyMap[idStr] = (cartQtyMap[idStr] || 0) + (parseFloat(ci.quantity) || 1);
     });
 
     grid.innerHTML = filtered.map(item => {
-      const qty = cartQtyMap[item.id] || 0;
+      const qty = cartQtyMap[String(item.id)] || 0;
       const inCartClass = qty > 0 ? ' in-cart' : '';
       const badgeHtml = qty > 0 ? `<span class="item-qty-badge">${qty}</span>` : '';
       return `
@@ -640,6 +643,11 @@ window.POS = {
       const floatingBar = document.getElementById('pos-mobile-floating-bar');
       if (mobileBadge) mobileBadge.textContent = '0';
       if (floatingBar) floatingBar.classList.add('hidden');
+      const posLayout = document.getElementById('pos-layout');
+      if (posLayout) {
+        posLayout.classList.remove('has-cart');
+      }
+      this.updateCardHighlights();
       return;
     }
 
@@ -838,23 +846,26 @@ window.POS = {
 
     const cartQtyMap = {};
     (this.cart || []).forEach(ci => {
-      cartQtyMap[ci.menu_item_id] = (cartQtyMap[ci.menu_item_id] || 0) + (ci.quantity || 1);
+      const idStr = String(ci.menu_item_id);
+      cartQtyMap[idStr] = (cartQtyMap[idStr] || 0) + (parseFloat(ci.quantity) || 1);
     });
 
     const cards = grid.querySelectorAll('.pos-item-card');
     cards.forEach(card => {
-      const itemId = parseInt(card.dataset.itemId, 10);
-      const qty = cartQtyMap[itemId] || 0;
+      const itemIdStr = String(card.dataset.itemId || '');
+      const qty = cartQtyMap[itemIdStr] || 0;
 
-      let badge = card.querySelector('.item-qty-badge');
+      const badge = card.querySelector('.item-qty-badge');
       if (qty > 0) {
         card.classList.add('in-cart');
         if (!badge) {
-          badge = document.createElement('span');
-          badge.className = 'item-qty-badge';
-          card.prepend(badge);
+          const newBadge = document.createElement('span');
+          newBadge.className = 'item-qty-badge';
+          newBadge.textContent = qty;
+          card.prepend(newBadge);
+        } else {
+          badge.textContent = qty;
         }
-        badge.textContent = qty;
       } else {
         card.classList.remove('in-cart');
         if (badge) {
@@ -1134,6 +1145,7 @@ window.POS = {
     if (gstinInput) gstinInput.value = '';
 
     this.renderCart();
+    this.updateCardHighlights();
   },
 
   startEditingOrder(order) {

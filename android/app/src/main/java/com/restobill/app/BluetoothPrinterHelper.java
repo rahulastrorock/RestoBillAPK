@@ -144,7 +144,8 @@ public class BluetoothPrinterHelper {
 
         // 320 dots (40 bytes/line) for 58mm: safe for all portable Bluetooth thermal printers
         // (many cheap 58mm printers have only ~300-310 dot printable area, not the nominal 384)
-        int paperWidth = is80mm ? 576 : 320;
+        // 360 dots (45 bytes/line) for 58mm / 55mm roll: fills 45mm width with clear, readable POS typography
+        int paperWidth = is80mm ? 576 : 360;
 
         // Pass 1: Measure exact height required
         float measuredHeight = drawReceipt(null, order, settings, paperWidth, 8f);
@@ -165,17 +166,17 @@ public class BluetoothPrinterHelper {
      */
     private static float drawReceipt(Canvas canvas, JSONObject order, JSONObject settings, int paperWidth, float startY) {
         boolean is80mm = paperWidth > 400;
-        float margin = is80mm ? 8f : 4f;
-        float rightMargin = is80mm ? paperWidth - 14f : paperWidth - 4f; // 316f for 320px-wide 58mm
-        float contentWidth = rightMargin - margin; // 312f for 58mm
+        float margin = is80mm ? 8f : 5f;
+        float rightMargin = is80mm ? paperWidth - 14f : paperWidth - 5f; // 355f for 360px-wide 58mm
+        float contentWidth = rightMargin - margin; // 350f for 58mm
 
-        float titleSize = is80mm ? 26f : 17f;
-        float headerMetaSize = is80mm ? 18f : 12f;
-        float normalSize = is80mm ? 19f : 12f;
-        float boldSize = is80mm ? 19f : 12f;
-        float smallSize = is80mm ? 16f : 10f;
-        float grandTotalSize = is80mm ? 26f : 16f;
-        float lineHeight = is80mm ? 27f : 17f;
+        float titleSize = is80mm ? 26f : 21f;
+        float headerMetaSize = is80mm ? 18f : 14f;
+        float normalSize = is80mm ? 19f : 14.5f;
+        float boldSize = is80mm ? 19f : 14.5f;
+        float smallSize = is80mm ? 16f : 12f;
+        float grandTotalSize = is80mm ? 26f : 21f;
+        float lineHeight = is80mm ? 27f : 21f;
 
         Paint titlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         titlePaint.setColor(Color.BLACK);
@@ -345,13 +346,13 @@ public class BluetoothPrinterHelper {
         if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
         y += 5f;
 
-        // 3. Table Column Positions - Perfectly squeezed for 58mm / 80mm
+        // 3. Table Column Positions - Proportioned for 360px 58mm / 576px 80mm
         boolean showRate = isOptionEnabled(settings, "print_show_rate", true);
         float colItemX = margin;
-        float colTotalRight = rightMargin; // 316f on 58mm
-        float colRateRight = is80mm ? margin + 440f : 245f;
-        float colQtyRight = is80mm ? (showRate ? margin + 340f : margin + 400f) : (showRate ? 170f : 220f);
-        float maxNameWidth = colQtyRight - colItemX - 8f; // ~158f for 58mm with rate
+        float colTotalRight = rightMargin; // 355f on 58mm
+        float colRateRight = is80mm ? margin + 440f : 275f;
+        float colQtyRight = is80mm ? (showRate ? margin + 340f : margin + 400f) : (showRate ? 195f : 250f);
+        float maxNameWidth = colQtyRight - colItemX - 8f; // ~182f for 58mm with rate
 
         // Table Header
         if (canvas != null) {
@@ -418,7 +419,7 @@ public class BluetoothPrinterHelper {
         y += 5f;
 
         // 4. Totals / Summary Section (Total Items and Total Quantity removed as requested)
-        float labelX = is80mm ? margin + 60f : margin + 40f;
+        float labelX = is80mm ? margin + 60f : margin + 45f;
 
         // Sub Total
         if (isOptionEnabled(settings, "print_show_subtotal", true)) {
@@ -464,15 +465,7 @@ public class BluetoothPrinterHelper {
             }
         }
 
-        // Round Off
-        double roundOff = order.optDouble("round_off", 0);
-        if (Math.abs(roundOff) > 0.001) {
-            if (canvas != null) {
-                canvas.drawText("Round Off", labelX, y + normalSize, normalPaint);
-                drawRightAlignedText(canvas, String.format(Locale.US, "%+.2f", roundOff), colTotalRight, y + normalSize, normalPaint);
-            }
-            y += lineHeight;
-        }
+// Round Off row removed as requested
 
         // Solid Divider Line
         y += 4f;
@@ -495,7 +488,7 @@ public class BluetoothPrinterHelper {
         y += 5f;
 
         // 6. Payment Mode
-        if (isOptionEnabled(settings, "print_show_payment_mode", true)) {
+        if (isOptionEnabled(settings, "print_show_payment_mode", false)) {
             String paymentMode = order.optString("payment_mode", "cash").toLowerCase();
             if (canvas != null) {
                 canvas.drawText("Mode of Payment", margin, y + normalSize, normalPaint);
@@ -803,10 +796,7 @@ public class BluetoothPrinterHelper {
                 }
             }
 
-            double roundOff = order.optDouble("round_off", 0);
-            if (Math.abs(roundOff) > 0.001) {
-                out.write(formatTwoColumn("Round Off", String.format(Locale.US, "%+.2f", roundOff), maxCols).getBytes(StandardCharsets.US_ASCII));
-            }
+// Round Off row removed as requested
 
             // Grand Total (Centered or Left-Right, Bold, Standard Size)
             out.write((repeatChar('-', maxCols) + "\n").getBytes(StandardCharsets.US_ASCII));
@@ -820,7 +810,7 @@ public class BluetoothPrinterHelper {
             out.write((repeatChar('-', maxCols) + "\n").getBytes(StandardCharsets.US_ASCII));
 
             // Payment Mode
-            if (isOptionEnabled(settings, "print_show_payment_mode", true)) {
+            if (isOptionEnabled(settings, "print_show_payment_mode", false)) {
                 String paymentMode = order.optString("payment_mode", "cash").toLowerCase();
                 out.write(formatTwoColumn("Mode of Payment", paymentMode, maxCols).getBytes(StandardCharsets.US_ASCII));
                 out.write(formatTwoColumn("Received", formatMoney(grandTotal), maxCols).getBytes(StandardCharsets.US_ASCII));
@@ -1031,8 +1021,16 @@ public class BluetoothPrinterHelper {
 
     private static boolean isOptionEnabled(JSONObject settings, String key, boolean defaultVal) {
         if (settings == null || !settings.has(key)) return defaultVal;
-        String val = settings.optString(key, defaultVal ? "1" : "0");
-        return "1".equals(val) || "true".equalsIgnoreCase(val) || settings.optBoolean(key, defaultVal);
+        Object obj = settings.opt(key);
+        if (obj == null) return defaultVal;
+        String val = String.valueOf(obj).trim().toLowerCase(Locale.ROOT);
+        if ("0".equals(val) || "false".equals(val) || "no".equals(val) || "off".equals(val)) {
+            return false;
+        }
+        if ("1".equals(val) || "true".equals(val) || "yes".equals(val) || "on".equals(val)) {
+            return true;
+        }
+        return defaultVal;
     }
 
     private static String formatMoney(double val) {

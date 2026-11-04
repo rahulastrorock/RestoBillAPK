@@ -399,7 +399,7 @@
         ['print_show_item_tax', '0'],
         ['print_show_subtotal', '1'],
         ['print_show_tax_breakdown', '1'],
-        ['print_show_payment_mode', '1'],
+        ['print_show_payment_mode', '0'],
         ['print_show_notes', '1'],
         ['print_show_amount_words', '0'],
         ['print_show_footer', '1'],
@@ -450,6 +450,15 @@
           dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('printer_width', '58')").run();
         }
         dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('printer_width_58_migrated_v1', '1')").run();
+      }
+    } catch (e) {}
+
+    // Ensure payment mode is hidden by default as requested
+    try {
+      const paymentModeMigrated = dbWrap.prepare("SELECT value FROM settings WHERE key = 'print_payment_mode_migrated_v1'").get()?.value;
+      if (!paymentModeMigrated) {
+        dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('print_show_payment_mode', '0')").run();
+        dbWrap.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('print_payment_mode_migrated_v1', '1')").run();
       }
     } catch (e) {}
 
@@ -731,7 +740,7 @@
       const showItemTax = isOptionEnabled(s.print_show_item_tax, false);
       const showSubtotal = isOptionEnabled(s.print_show_subtotal, true);
       const showTaxBreakdown = isOptionEnabled(s.print_show_tax_breakdown, true);
-      const showPayment = isOptionEnabled(s.print_show_payment_mode, true);
+      const showPayment = isOptionEnabled(s.print_show_payment_mode, false);
       const showWords = isOptionEnabled(s.print_show_amount_words, false);
       const showNotes = isOptionEnabled(s.print_show_notes, true) && order.notes;
       const showFooter = isOptionEnabled(s.print_show_footer, true);
@@ -849,7 +858,7 @@
             ${order.discount_amount > 0 ? `<tr><td style="color:#16a34a;">Discount:</td><td style="text-align:right; color:#16a34a;">-${currency}${parseFloat(order.discount_amount).toFixed(2)}</td></tr>` : ''}
             ${showTaxBreakdown && order.cgst > 0 ? `<tr><td>CGST:</td><td style="text-align:right;">${currency}${parseFloat(order.cgst).toFixed(2)}</td></tr>` : ''}
             ${showTaxBreakdown && order.sgst > 0 ? `<tr><td>SGST:</td><td style="text-align:right;">${currency}${parseFloat(order.sgst).toFixed(2)}</td></tr>` : ''}
-            ${order.round_off ? `<tr><td>Round Off:</td><td style="text-align:right;">${currency}${parseFloat(order.round_off).toFixed(2)}</td></tr>` : ''}
+            
             <tr class="grand-total-row"><td>Grand Total:</td><td style="text-align:right;">${currency}${parseFloat(order.total || 0).toFixed(2)}</td></tr>
           </table>
         </td>
@@ -903,7 +912,7 @@
     const showItemTax = isOptionEnabled(s.print_show_item_tax, false);
     const showSubtotal = isOptionEnabled(s.print_show_subtotal, true);
     const showTaxBreakdown = isOptionEnabled(s.print_show_tax_breakdown, true);
-    const showPayment = isOptionEnabled(s.print_show_payment_mode, true);
+    const showPayment = isOptionEnabled(s.print_show_payment_mode, false);
     const showWords = isOptionEnabled(s.print_show_amount_words, false);
     const showNotes = isOptionEnabled(s.print_show_notes, true) && order.notes;
 
@@ -1003,7 +1012,7 @@
     ${order.discount_amount > 0 ? `<tr><td>Discount</td><td class="right">-${fmtMoney(order.discount_amount)}</td></tr>` : ''}
     ${showTaxBreakdown && order.cgst > 0 ? `<tr><td>CGST</td><td class="right">${fmtMoney(order.cgst)}</td></tr>` : ''}
     ${showTaxBreakdown && order.sgst > 0 ? `<tr><td>SGST</td><td class="right">${fmtMoney(order.sgst)}</td></tr>` : ''}
-    ${order.round_off ? `<tr><td>Round Off</td><td class="right">${fmtMoney(order.round_off)}</td></tr>` : ''}
+    
   </table>
 
   <div class="divider"></div>

@@ -936,7 +936,7 @@ window.SettingsUI = {
                       <span class="printer-toggle-desc">Print Cash / UPI / Card mode</span>
                     </div>
                     <div class="switch">
-                      <input type="checkbox" name="print_show_payment_mode" ${isChecked(s.print_show_payment_mode, true) ? 'checked' : ''}>
+                      <input type="checkbox" name="print_show_payment_mode" ${isChecked(s.print_show_payment_mode, false) ? 'checked' : ''}>
                       <span class="switch-slider"></span>
                     </div>
                   </label>
