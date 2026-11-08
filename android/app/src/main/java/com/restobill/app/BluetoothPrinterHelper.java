@@ -9,6 +9,7 @@ import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.os.Build;
@@ -144,8 +145,8 @@ public class BluetoothPrinterHelper {
 
         // 320 dots (40 bytes/line) for 58mm: safe for all portable Bluetooth thermal printers
         // (many cheap 58mm printers have only ~300-310 dot printable area, not the nominal 384)
-        // 360 dots (45 bytes/line) for 58mm / 55mm roll: fills 45mm width with clear, readable POS typography
-        int paperWidth = is80mm ? 576 : 360;
+        // 384 dots (48 bytes/line = 32 columns) for 58mm: matches the exact width, size, and Monospace font of the hardware test print
+        int paperWidth = is80mm ? 576 : 384;
 
         // Pass 1: Measure exact height required
         float measuredHeight = drawReceipt(null, order, settings, paperWidth, 8f);
@@ -166,51 +167,58 @@ public class BluetoothPrinterHelper {
      */
     private static float drawReceipt(Canvas canvas, JSONObject order, JSONObject settings, int paperWidth, float startY) {
         boolean is80mm = paperWidth > 400;
-        float margin = is80mm ? 8f : 5f;
-        float rightMargin = is80mm ? paperWidth - 14f : paperWidth - 5f; // 355f for 360px-wide 58mm
-        float contentWidth = rightMargin - margin; // 350f for 58mm
+        float margin = is80mm ? 8f : 6f;
+        float rightMargin = is80mm ? paperWidth - 14f : paperWidth - 6f; // 378f for 384px-wide 58mm
+        float contentWidth = rightMargin - margin; // 372f for 58mm
 
-        float titleSize = is80mm ? 26f : 21f;
-        float headerMetaSize = is80mm ? 18f : 14f;
-        float normalSize = is80mm ? 19f : 14.5f;
-        float boldSize = is80mm ? 19f : 14.5f;
-        float smallSize = is80mm ? 16f : 12f;
-        float grandTotalSize = is80mm ? 26f : 21f;
-        float lineHeight = is80mm ? 27f : 21f;
+        // Matches the exact size and scale of the hardware ESC/POS test print (approx 1.6x larger than previously)
+        float titleSize = is80mm ? 28f : 24f;
+        float headerMetaSize = is80mm ? 20f : 18f;
+        float normalSize = is80mm ? 22f : 20f;
+        float boldSize = is80mm ? 22f : 20f;
+        float smallSize = is80mm ? 18f : 16f;
+        float grandTotalSize = is80mm ? 28f : 24f;
+        float lineHeight = is80mm ? 32f : 28f;
 
+        // Use MONOSPACE font matching printer native hardware ROM font (with seamless fallback for Hindi/Devanagari)
         Paint titlePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         titlePaint.setColor(Color.BLACK);
         titlePaint.setTextSize(titleSize);
-        titlePaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
+        titlePaint.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+        titlePaint.setFakeBoldText(true);
 
         Paint boldPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         boldPaint.setColor(Color.BLACK);
         boldPaint.setTextSize(boldSize);
-        boldPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
+        boldPaint.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+        boldPaint.setFakeBoldText(true);
 
         Paint normalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         normalPaint.setColor(Color.BLACK);
         normalPaint.setTextSize(normalSize);
-        normalPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));
+        normalPaint.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL));
 
         Paint metaPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         metaPaint.setColor(Color.BLACK);
         metaPaint.setTextSize(headerMetaSize);
-        metaPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));
+        metaPaint.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL));
 
         Paint smallPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         smallPaint.setColor(Color.BLACK);
         smallPaint.setTextSize(smallSize);
-        smallPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.NORMAL));
+        smallPaint.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.NORMAL));
 
         Paint totalPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         totalPaint.setColor(Color.BLACK);
         totalPaint.setTextSize(grandTotalSize);
-        totalPaint.setTypeface(Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD));
+        totalPaint.setTypeface(Typeface.create(Typeface.MONOSPACE, Typeface.BOLD));
+        totalPaint.setFakeBoldText(true);
 
+        // Dashed divider line matching the test print dashed line
         Paint linePaint = new Paint();
         linePaint.setColor(Color.BLACK);
-        linePaint.setStrokeWidth(1.2f);
+        linePaint.setStrokeWidth(1.6f);
+        linePaint.setPathEffect(new DashPathEffect(new float[]{6f, 3f}, 0f));
 
         float y = startY;
 
@@ -346,13 +354,13 @@ public class BluetoothPrinterHelper {
         if (canvas != null) canvas.drawLine(margin, y, rightMargin, y, linePaint);
         y += 5f;
 
-        // 3. Table Column Positions - Proportioned for 360px 58mm / 576px 80mm
+        // 3. Table Column Positions - Matching 32-column monospace layout (384px 58mm / 576px 80mm)
         boolean showRate = isOptionEnabled(settings, "print_show_rate", true);
         float colItemX = margin;
-        float colTotalRight = rightMargin; // 355f on 58mm
-        float colRateRight = is80mm ? margin + 440f : 275f;
-        float colQtyRight = is80mm ? (showRate ? margin + 340f : margin + 400f) : (showRate ? 195f : 250f);
-        float maxNameWidth = colQtyRight - colItemX - 8f; // ~182f for 58mm with rate
+        float colTotalRight = rightMargin; // 378f on 58mm
+        float colRateRight = is80mm ? margin + 440f : 295f;
+        float colQtyRight = is80mm ? (showRate ? margin + 340f : margin + 400f) : (showRate ? 215f : 270f);
+        float maxNameWidth = colQtyRight - colItemX - 10f; // ~199f for 58mm with rate
 
         // Table Header
         if (canvas != null) {
@@ -419,7 +427,7 @@ public class BluetoothPrinterHelper {
         y += 5f;
 
         // 4. Totals / Summary Section (Total Items and Total Quantity removed as requested)
-        float labelX = is80mm ? margin + 60f : margin + 45f;
+        float labelX = is80mm ? margin + 60f : margin + 20f;
 
         // Sub Total
         if (isOptionEnabled(settings, "print_show_subtotal", true)) {
@@ -593,7 +601,7 @@ public class BluetoothPrinterHelper {
                                 int g = (pixel >> 8) & 0xFF;
                                 int b = pixel & 0xFF;
                                 int lum = (r * 299 + g * 587 + b * 114) / 1000;
-                                if (lum < 185) {
+                                if (lum < 200) {
                                     byteVal |= (1 << (7 - bit));
                                 }
                             }
