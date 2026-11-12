@@ -2142,6 +2142,43 @@ window.SettingsUI = {
           </div>
         </div>
 
+        <!-- 1.5 Continuous Deployment & Live Updates Card -->
+        <div class="about-hero-card" style="margin-top: 16px; border: 1px solid rgba(99, 102, 241, 0.4); background: linear-gradient(135deg, rgba(30, 27, 75, 0.5) 0%, rgba(15, 23, 42, 0.7) 100%);">
+          <div class="about-hero-header">
+            <div class="about-logo-badge" style="background: linear-gradient(135deg, #4f46e5, #06b6d4);">
+              <span class="about-logo-letters">🚀</span>
+            </div>
+            <div class="about-hero-info">
+              <div class="about-title-row">
+                <h3 class="about-app-name">Continuous Deployment &amp; Live Updates</h3>
+                <span class="about-version-badge" id="cdCurrentVersionBadge">v${version}</span>
+              </div>
+              <p class="about-app-tagline">Seamless in-place updates &bull; Zero configuration loss</p>
+            </div>
+          </div>
+
+          <div style="margin: 12px 0 16px; padding: 12px 14px; border-radius: 8px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); display: flex; align-items: flex-start; gap: 10px;">
+            <span style="font-size: 1.2rem; line-height: 1.2;">🛡️</span>
+            <div style="font-size: 0.85rem; color: #d1fae5; line-height: 1.45;">
+              <strong>Zero-Setup In-Place Updates:</strong> Every APK build is permanently signed with a stable cryptographic key. You never have to uninstall the app or re-setup your restaurant, bills, menus, or printers. When you install an updated APK, Android preserves 100% of your data and settings automatically.
+            </div>
+          </div>
+
+          <div id="updateStatusBox" style="margin-bottom: 12px; display: none;"></div>
+
+          <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+            <button id="btnCheckAppUpdates" type="button" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 6px;">
+              <span>🔄</span> Check for Updates
+            </button>
+            <button id="btnDirectDownloadUpdate" type="button" class="btn btn-outline" style="display: inline-flex; align-items: center; gap: 6px;">
+              <span>⬇️</span> Download Latest APK
+            </button>
+            <button id="btnViewAllReleases" type="button" class="btn btn-ghost" style="font-size: 0.85rem; color: #94a3b8; text-decoration: underline;">
+              View Releases on GitHub ↗
+            </button>
+          </div>
+        </div>
+
         <!-- 2. Developer & Creator Showcase Card -->
         <div class="about-developer-card">
           <div class="about-dev-header">
@@ -2235,6 +2272,80 @@ window.SettingsUI = {
         </div>
       </div>
     `;
+
+    setTimeout(() => {
+      const btnCheck = container.querySelector('#btnCheckAppUpdates');
+      const statusBox = container.querySelector('#updateStatusBox');
+      const directDownloadBtn = container.querySelector('#btnDirectDownloadUpdate');
+      const btnViewAll = container.querySelector('#btnViewAllReleases');
+
+      if (btnCheck && statusBox) {
+        btnCheck.addEventListener('click', async () => {
+          btnCheck.disabled = true;
+          btnCheck.innerHTML = '<span>⏳</span> Checking GitHub...';
+          statusBox.style.display = 'block';
+          statusBox.innerHTML = `
+            <div style="padding: 10px 12px; border-radius: 6px; background: rgba(255,255,255,0.05); font-size: 0.85rem; color: #94a3b8;">
+              Connecting to GitHub Releases repository...
+            </div>
+          `;
+
+          try {
+            const res = await window.api.app.checkForUpdates();
+            if (res && res.error) {
+              statusBox.innerHTML = `
+                <div style="padding: 10px 12px; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.85rem; color: #fca5a5;">
+                  ⚠️ ${res.error || res.message}
+                </div>
+              `;
+            } else if (res && res.hasUpdate) {
+              statusBox.innerHTML = `
+                <div style="padding: 12px 14px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); font-size: 0.88rem; color: #bfdbfe;">
+                  <div style="font-weight: 600; margin-bottom: 4px; color: #60a5fa;">🎉 New Version Available: ${res.latestVersion || res.tagName}</div>
+                  <div style="font-size: 0.82rem; margin-bottom: 10px; color: #cbd5e1;">Current: v${version} &bull; Released: ${res.publishedAt ? new Date(res.publishedAt).toLocaleDateString() : 'Recent'}</div>
+                  <button id="btnApplyUpdateNow" type="button" class="btn btn-sm btn-success" style="font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+                    <span>⚡</span> Install Update Now (Preserves All Data)
+                  </button>
+                </div>
+              `;
+              const btnApply = statusBox.querySelector('#btnApplyUpdateNow');
+              if (btnApply) {
+                btnApply.addEventListener('click', () => {
+                  window.api.app.openExternal(res.downloadUrl);
+                });
+              }
+            } else {
+              statusBox.innerHTML = `
+                <div style="padding: 10px 12px; border-radius: 6px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); font-size: 0.85rem; color: #6ee7b7;">
+                  ✅ You are running the latest version of RestoBill POS (v${version}).
+                </div>
+              `;
+            }
+          } catch (e) {
+            statusBox.innerHTML = `
+              <div style="padding: 10px 12px; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.85rem; color: #fca5a5;">
+                ⚠️ Update check failed: ${e.message}
+              </div>
+            `;
+          } finally {
+            btnCheck.disabled = false;
+            btnCheck.innerHTML = '<span>🔄</span> Check for Updates';
+          }
+        });
+      }
+
+      if (directDownloadBtn) {
+        directDownloadBtn.addEventListener('click', () => {
+          window.api.app.openExternal('https://github.com/rahulastrorock/RestoBillAPK/releases/latest/download/RestoBill-release-latest.apk');
+        });
+      }
+
+      if (btnViewAll) {
+        btnViewAll.addEventListener('click', () => {
+          window.api.app.openExternal('https://github.com/rahulastrorock/RestoBillAPK/releases');
+        });
+      }
+    }, 50);
   },
 
   renderMetricsTab(container) {

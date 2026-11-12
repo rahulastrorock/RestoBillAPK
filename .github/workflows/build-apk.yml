@@ -7,6 +7,9 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build & Optimize Android Release APK
@@ -72,28 +75,28 @@ jobs:
           ALIGNED_APK="android/app/build/outputs/apk/release/app-aligned.apk"
           $BUILD_TOOLS_DIR/zipalign -v -p 4 "$UNSIGNED_APK" "$ALIGNED_APK"
 
-          # 3. Setup Release Keystore
-          KEYSTORE_FILE="release.keystore"
+          # 3. Setup Permanent Release Keystore
+          KEYSTORE_FILE="android/app/restobill-release.keystore"
+          KS_PASS="restobill@123"
+          KEY_ALIAS="restobill"
+          KEY_PASS="restobill@123"
+
           if [ -n "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" ]; then
             echo "Using custom release keystore provided via GitHub Secrets..."
-            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > "$KEYSTORE_FILE"
+            echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 --decode > "custom.keystore"
+            KEYSTORE_FILE="custom.keystore"
             KS_PASS="${{ secrets.KEYSTORE_PASSWORD }}"
             KEY_ALIAS="${{ secrets.KEY_ALIAS }}"
             KEY_PASS="${{ secrets.KEY_PASSWORD }}"
           else
-            echo "Generating production-ready release keystore..."
-            keytool -genkeypair -v -keystore "$KEYSTORE_FILE" \
-              -alias restobill \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -storepass "restobill@123" -keypass "restobill@123" \
-              -dname "CN=Rahul Singh, OU=RestoBill, O=RestoBill POS, L=Renukoot, ST=UP, C=IN"
-            KS_PASS="restobill@123"
-            KEY_ALIAS="restobill"
-            KEY_PASS="restobill@123"
+            echo "Using committed permanent release keystore: $KEYSTORE_FILE"
           fi
 
           # 4. Sign with apksigner (V1, V2, V3 signature schemes for Android 7.0 to 16.0)
-          FINAL_RELEASE_APK="RestoBill-v1.0.0-release.apk"
+          RUN_NUM="${{ github.run_number }}"
+          FINAL_RELEASE_APK="RestoBill-v1.0.${RUN_NUM}-release.apk"
+          LATEST_RELEASE_APK="RestoBill-release-latest.apk"
+
           $BUILD_TOOLS_DIR/apksigner sign \
             --ks "$KEYSTORE_FILE" \
             --ks-pass pass:"$KS_PASS" \
@@ -105,6 +108,8 @@ jobs:
             --out "$FINAL_RELEASE_APK" \
             "$ALIGNED_APK"
 
+          cp "$FINAL_RELEASE_APK" "$LATEST_RELEASE_APK"
+
           # 5. Verify Signature
           echo "Verifying APK Signature:"
           $BUILD_TOOLS_DIR/apksigner verify --verbose "$FINAL_RELEASE_APK"
@@ -112,33 +117,59 @@ jobs:
           # Prepare Debug APK as well
           DEBUG_APK=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
           if [ -n "$DEBUG_APK" ]; then
-            cp "$DEBUG_APK" "RestoBill-v1.0.0-debug.apk"
+            cp "$DEBUG_APK" "RestoBill-v1.0.${RUN_NUM}-debug.apk"
           fi
 
           # Generate GitHub Step Summary
           RELEASE_SIZE=$(ls -lh "$FINAL_RELEASE_APK" | awk '{print $5}')
           RELEASE_SHA=$(sha256sum "$FINAL_RELEASE_APK" | awk '{print $1}')
-          echo "### 🚀 RestoBill Android APK Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "### 🚀 RestoBill Android APK Build Summary (Continuous Deployment)" >> $GITHUB_STEP_SUMMARY
           echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---|---|" >> $GITHUB_STEP_SUMMARY
           echo "| **Package** | \`com.restobill.app\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| **Version** | \`1.0.${RUN_NUM}\` (versionCode: \`$((1000 + RUN_NUM))\`) |" >> $GITHUB_STEP_SUMMARY
           echo "| **Variant** | Production Release (Optimized & Signed) |" >> $GITHUB_STEP_SUMMARY
           echo "| **File** | \`$FINAL_RELEASE_APK\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Size** | \`$RELEASE_SIZE\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **SHA256** | \`$RELEASE_SHA\` |" >> $GITHUB_STEP_SUMMARY
           echo "| **Signatures** | V1 (JAR), V2 (Full APK), V3 (Key Rotation) |" >> $GITHUB_STEP_SUMMARY
-          echo "| **Alignment** | Zipaligned (4-byte page boundary) |" >> $GITHUB_STEP_SUMMARY
+          echo "| **In-Place Upgrade** | Supported (Zero data loss upon update) |" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload Signed Release APK
         uses: actions/upload-artifact@v4
         with:
           name: RestoBill-Release-APK
-          path: RestoBill-v1.0.0-release.apk
+          path: |
+            RestoBill-v1.0.*-release.apk
+            RestoBill-release-latest.apk
           if-no-files-found: error
 
       - name: Upload Debug APK (Optional)
         uses: actions/upload-artifact@v4
         with:
           name: RestoBill-Debug-APK
-          path: RestoBill-v1.0.0-debug.apk
+          path: RestoBill-v1.0.*-debug.apk
           if-no-files-found: warn
+
+      - name: Publish GitHub Release (Continuous Deployment)
+        if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: RestoBill v1.0.${{ github.run_number }}
+          make_latest: true
+          body: |
+            ### 🚀 RestoBill Continuous Deployment Build #${{ github.run_number }}
+            - **Version**: `1.0.${{ github.run_number }}`
+            - **Commit**: `${{ github.sha }}`
+            - **Seamless In-Place Update**: Signed with permanent keystore (`BD:60:BC:3A...`). Android will update your installed app directly without losing any data or settings.
+
+            #### 📥 Direct Download Links
+            - [⬇️ **Download Latest Release APK** (Always Latest)](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/RestoBill-release-latest.apk)
+            - [⬇️ **Download Versioned APK** (RestoBill-v1.0.${{ github.run_number }}-release.apk)](https://github.com/${{ github.repository }}/releases/download/v1.0.${{ github.run_number }}/RestoBill-v1.0.${{ github.run_number }}-release.apk)
+          files: |
+            RestoBill-v1.0.${{ github.run_number }}-release.apk
+            RestoBill-release-latest.apk
+            RestoBill-v1.0.${{ github.run_number }}-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

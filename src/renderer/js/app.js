@@ -34,6 +34,11 @@ window.App = {
     // Setup session activity tracking & watchdog
     this.initActivityTracking();
 
+    // Auto-check for Continuous Deployment updates 6 seconds after launch
+    setTimeout(() => {
+      this.checkAutomaticUpdates();
+    }, 6000);
+
     // Check if login authentication is required
     const isLoginRequired = this.settings.require_login !== '0' && this.settings.require_login !== false;
     if (!isLoginRequired) {
@@ -50,6 +55,44 @@ window.App = {
     const sessionRestored = this.checkSavedSession();
     if (!sessionRestored) {
       this.showLogin();
+    }
+  },
+
+  async checkAutomaticUpdates() {
+    try {
+      if (window.api?.app?.checkForUpdates) {
+        const res = await window.api.app.checkForUpdates();
+        if (res && res.hasUpdate) {
+          if (document.getElementById('app-update-notification-bar')) return;
+
+          const banner = document.createElement('div');
+          banner.id = 'app-update-notification-bar';
+          banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:linear-gradient(90deg,#4f46e5,#06b6d4);color:#ffffff;padding:8px 16px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 4px 14px rgba(0,0,0,0.4);font-size:0.88rem;';
+          banner.innerHTML = `
+            <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">
+              <span style="font-size:1.1rem;">🚀</span>
+              <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+                <strong>RestoBill Update Available (${res.latestVersion || res.tagName}):</strong> In-place update with zero data loss.
+              </span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+              <button id="btnBannerUpdateNow" type="button" style="background:#ffffff;color:#1e1b4b;border:none;padding:5px 12px;border-radius:4px;font-weight:bold;cursor:pointer;font-size:0.82rem;">Update</button>
+              <button id="btnBannerDismiss" type="button" style="background:transparent;color:#ffffff;border:none;cursor:pointer;font-size:1.1rem;line-height:1;padding:4px 6px;">✕</button>
+            </div>
+          `;
+          document.body.appendChild(banner);
+
+          banner.querySelector('#btnBannerUpdateNow')?.addEventListener('click', () => {
+            window.api?.app?.openExternal(res.downloadUrl);
+            banner.remove();
+          });
+          banner.querySelector('#btnBannerDismiss')?.addEventListener('click', () => {
+            banner.remove();
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('Auto update check error:', e);
     }
   },
 

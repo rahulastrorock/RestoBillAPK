@@ -3,12 +3,17 @@ apply plugin: 'com.android.application'
 android {
     namespace = "com.restobill.app"
     compileSdk = rootProject.ext.compileSdkVersion
+
+    def envBuildNumber = System.getenv("GITHUB_RUN_NUMBER") ?: "1"
+    def computedVersionCode = 1000 + envBuildNumber.toInteger()
+    def computedVersionName = "1.0." + envBuildNumber
+
     defaultConfig {
         applicationId "com.restobill.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        versionCode computedVersionCode
+        versionName computedVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -18,11 +23,17 @@ android {
     }
     signingConfigs {
         release {
+            def defaultKeystore = file("restobill-release.keystore")
             if (project.hasProperty('RELEASE_STORE_FILE') && file(project.property('RELEASE_STORE_FILE')).exists()) {
                 storeFile file(project.property('RELEASE_STORE_FILE'))
                 storePassword project.property('RELEASE_STORE_PASSWORD')
                 keyAlias project.property('RELEASE_KEY_ALIAS')
                 keyPassword project.property('RELEASE_KEY_PASSWORD')
+            } else if (defaultKeystore.exists()) {
+                storeFile defaultKeystore
+                storePassword "restobill@123"
+                keyAlias "restobill"
+                keyPassword "restobill@123"
             }
         }
     }
@@ -30,9 +41,7 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            if (project.hasProperty('RELEASE_STORE_FILE') && file(project.property('RELEASE_STORE_FILE')).exists()) {
-                signingConfig signingConfigs.release
-            }
+            signingConfig signingConfigs.release
         }
     }
 }

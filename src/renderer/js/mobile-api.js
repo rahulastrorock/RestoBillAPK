@@ -3030,9 +3030,109 @@
 
     // ── App Utilities ─────────────────────────────────────────────
     app: {
-      getVersion: apiCall(async () => '1.0.0'),
+      getVersion: apiCall(async () => {
+        try {
+          if (window.Capacitor?.Plugins?.App?.getInfo) {
+            const info = await window.Capacitor.Plugins.App.getInfo();
+            if (info && info.version) {
+              return `${info.version} (Build ${info.build || '1'})`;
+            }
+          }
+        } catch (e) {}
+        return '1.0.0';
+      }),
       getDbPath: apiCall(async () => 'Android Storage (IndexedDB SQLite)'),
-      openExternal: apiCall(async (url) => { window.open(url, '_blank'); return true; }),
+      openExternal: apiCall(async (url) => {
+        try {
+          if (window.AndroidAppBridge && typeof window.AndroidAppBridge.openBrowser === 'function') {
+            window.AndroidAppBridge.openBrowser(url);
+            return true;
+          }
+        } catch (e) {}
+        window.open(url, '_blank');
+        return true;
+      }),
+      checkForUpdates: apiCall(async () => {
+        try {
+          let currentVersion = '1.0.0';
+          let currentBuild = 1000;
+          try {
+            if (window.Capacitor?.Plugins?.App?.getInfo) {
+              const info = await window.Capacitor.Plugins.App.getInfo();
+              if (info) {
+                currentVersion = info.version || '1.0.0';
+                currentBuild = parseInt(info.build || '1000', 10);
+              }
+            }
+          } catch (e) {}
+
+          const repo = 'rahulastrorock/RestoBillAPK';
+          const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`;
+          const resp = await fetch(apiUrl, { cache: 'no-store' });
+          if (!resp.ok) {
+            return {
+              hasUpdate: false,
+              checked: false,
+              message: 'Could not connect to GitHub Releases. Please check internet connection.'
+            };
+          }
+
+          const release = await resp.json();
+          const tagName = release.tag_name || ''; // e.g. "v1.0.45"
+          const cleanTag = tagName.replace(/^v/, '');
+          const tagParts = cleanTag.split('.').map(x => parseInt(x, 10) || 0);
+          const currentParts = currentVersion.split('.').map(x => parseInt(x, 10) || 0);
+
+          let hasUpdate = false;
+          for (let i = 0; i < Math.max(tagParts.length, currentParts.length); i++) {
+            const remote = tagParts[i] || 0;
+            const local = currentParts[i] || 0;
+            if (remote > local) {
+              hasUpdate = true;
+              break;
+            } else if (remote < local) {
+              break;
+            }
+          }
+
+          // If patch / run number extracted from tag is higher than current build
+          if (!hasUpdate && tagParts.length >= 3) {
+            const releaseRun = tagParts[2];
+            const localRun = currentBuild > 1000 ? (currentBuild - 1000) : currentBuild;
+            if (releaseRun > localRun) {
+              hasUpdate = true;
+            }
+          }
+
+          // Direct download link
+          let downloadUrl = `https://github.com/${repo}/releases/latest/download/RestoBill-release-latest.apk`;
+          if (Array.isArray(release.assets)) {
+            const apkAsset = release.assets.find(a => a.name.endsWith('-release.apk') || a.name.endsWith('latest.apk'));
+            if (apkAsset && apkAsset.browser_download_url) {
+              downloadUrl = apkAsset.browser_download_url;
+            }
+          }
+
+          return {
+            hasUpdate,
+            checked: true,
+            currentVersion,
+            latestVersion: release.name || tagName,
+            tagName,
+            downloadUrl,
+            releaseUrl: release.html_url,
+            publishedAt: release.published_at,
+            releaseNotes: release.body || ''
+          };
+        } catch (err) {
+          console.warn('Update check failed:', err);
+          return {
+            hasUpdate: false,
+            checked: false,
+            message: err.message || 'Update check failed.'
+          };
+        }
+      }),
       exportData: apiCall(async (type, data) => {
         // Prepend UTF-8 BOM so Microsoft Excel automatically recognizes encoding and displays symbols (like ₹) correctly
         const bom = '\uFEFF';

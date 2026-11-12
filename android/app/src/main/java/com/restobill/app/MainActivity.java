@@ -53,6 +53,25 @@ public class MainActivity extends BridgeActivity {
             }
 
             @JavascriptInterface
+            public boolean openBrowser(final String url) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        try {
+                            if (url != null && !url.trim().isEmpty()) {
+                                android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url.trim()));
+                                intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                                startActivity(intent);
+                            }
+                        } catch (Exception e) {
+                            android.util.Log.e("MainActivity", "Failed to open external URL: " + url, e);
+                        }
+                    }
+                });
+                return true;
+            }
+
+            @JavascriptInterface
             public boolean openWhatsApp(final String rawPhone, final String text) {
                 runOnUiThread(new Runnable() {
                     @Override
