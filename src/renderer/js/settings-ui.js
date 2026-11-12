@@ -13,7 +13,7 @@ window.SettingsUI = {
     try {
       const savedTab = localStorage.getItem('restobill_settings_tab');
       // Only restore non-protected tabs; backup & metrics require admin password
-      if (savedTab && ['restaurant', 'billing', 'printer', 'updates', 'about'].includes(savedTab)) {
+      if (savedTab && ['restaurant', 'billing', 'printer', 'about'].includes(savedTab)) {
         this.activeTab = savedTab;
       } else {
         this.activeTab = 'restaurant';
@@ -246,8 +246,6 @@ window.SettingsUI = {
       this.renderBackupTab(container);
     } else if (this.activeTab === 'metrics') {
       this.renderMetricsTab(container);
-    } else if (this.activeTab === 'updates') {
-      this.renderUpdatesTab(container);
     } else if (this.activeTab === 'about') {
       this.renderAboutTab(container);
     }
@@ -257,12 +255,7 @@ window.SettingsUI = {
     const s = this.settings;
     container.innerHTML = `
       <div class="settings-section">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px;">
-          <h3 style="font-size:18px;font-weight:700;margin:0;">Restaurant Profile</h3>
-          <button id="btnQuickCheckUpdates" type="button" class="btn btn-outline btn-xs" style="display:inline-flex;align-items:center;gap:6px;border-color:rgba(99,102,241,0.5);color:#818cf8;font-weight:600;">
-            <span>🔄</span> Check for App Updates
-          </button>
-        </div>
+        <h3 style="font-size:18px;font-weight:700;margin-bottom:6px;">Restaurant Profile</h3>
         <p style="color:var(--text-muted);font-size:13px;margin-bottom:20px;">
           This business information will appear on the top of printed receipts and GST tax invoices.
         </p>
@@ -414,12 +407,6 @@ window.SettingsUI = {
         if (fileInput) fileInput.value = '';
       };
     }
-
-    document.getElementById('btnQuickCheckUpdates')?.addEventListener('click', () => {
-      this.activeTab = 'updates';
-      this.syncTabButtons();
-      this.render();
-    });
 
     document.getElementById('settings-restaurant-form')?.addEventListener('submit', (e) => {
       e.preventDefault();
@@ -2114,224 +2101,6 @@ window.SettingsUI = {
     }, 50);
   },
 
-  async renderUpdatesTab(container) {
-    let version = '1.0.0';
-    try {
-      const verRes = await window.api.app.getVersion();
-      if (verRes?.success) version = verRes.data;
-    } catch (e) {}
-
-    container.innerHTML = `
-      <div class="settings-section about-page-wrapper">
-        <div class="about-hero-card" style="border: 1px solid rgba(99, 102, 241, 0.45); background: linear-gradient(135deg, rgba(30, 27, 75, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);">
-          <div class="about-hero-header">
-            <div class="about-logo-badge" style="background: linear-gradient(135deg, #4f46e5, #06b6d4);">
-              <span class="about-logo-letters">🔄</span>
-            </div>
-            <div class="about-hero-info">
-              <div class="about-title-row">
-                <h3 class="about-app-name">RestoBill In-App Updates</h3>
-                <span class="about-version-badge" id="updatesTabCurrentVersion">v${version}</span>
-              </div>
-              <p class="about-app-tagline">Continuous Deployment &bull; 1-Click In-App Direct Update &bull; Zero Data Loss</p>
-            </div>
-          </div>
-
-          <div style="margin: 14px 0 16px; padding: 12px 14px; border-radius: 8px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); display: flex; align-items: flex-start; gap: 10px;">
-            <span style="font-size: 1.25rem; line-height: 1.2;">🛡️</span>
-            <div style="font-size: 0.85rem; color: #d1fae5; line-height: 1.45;">
-              <strong>Zero-Reconfiguration In-Place Upgrade:</strong> All updates install directly over your existing app. Your SQLite database, saved orders, customers, GST configuration, and paired Bluetooth printers are completely preserved!
-            </div>
-          </div>
-
-          <!-- Dynamic Results Area -->
-          <div id="updatesResultsArea" style="margin-bottom: 16px;">
-            <div style="padding: 20px 16px; text-align: center; background: rgba(255, 255, 255, 0.03); border-radius: 8px; border: 1px dashed rgba(255, 255, 255, 0.15);">
-              <div style="font-size: 2.2rem; margin-bottom: 8px;">📲</div>
-              <div style="font-weight: 700; font-size: 1rem; margin-bottom: 4px; color: var(--text-primary);">Installed Version: v${version}</div>
-              <p style="font-size: 0.84rem; color: var(--text-muted); margin-bottom: 16px;">Check GitHub repository for newly compiled builds and enhancements.</p>
-              <button id="btnTriggerCheckUpdates" type="button" class="btn btn-primary" style="padding: 10px 24px; font-weight: 700; font-size: 0.95rem; display: inline-flex; align-items: center; gap: 8px;">
-                <span>🔄</span> Check for Updates Now
-              </button>
-            </div>
-          </div>
-
-          <!-- Live Download Progress Card (Displayed when downloading in-app) -->
-          <div id="updateDownloadProgressCard" style="display: none; padding: 16px; border-radius: 8px; background: rgba(30, 41, 59, 0.9); border: 1px solid rgba(59, 130, 246, 0.45); margin-bottom: 16px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <span id="updateProgressTitle" style="font-weight: 700; font-size: 0.92rem; color: #93c5fd;">📥 Downloading RestoBill Update...</span>
-              <span id="updateProgressPercent" style="font-weight: 700; font-size: 0.92rem; color: #60a5fa;">0%</span>
-            </div>
-            <div style="width: 100%; height: 9px; background: rgba(255, 255, 255, 0.12); border-radius: 6px; overflow: hidden; margin-bottom: 8px;">
-              <div id="updateProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.12s ease-out;"></div>
-            </div>
-            <div id="updateProgressSubtitle" style="font-size: 0.8rem; color: #94a3b8;">Connecting to server...</div>
-          </div>
-
-          <!-- Secondary Links Footer -->
-          <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; justify-content: space-between; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 14px;">
-            <div style="font-size: 0.8rem; color: var(--text-muted);">
-              Repository: <code>rahulastrorock/RestoBillAPK</code>
-            </div>
-            <div style="display: flex; gap: 10px;">
-              <button id="btnDirectDownloadLatestApk" type="button" class="btn btn-outline btn-xs" style="display: inline-flex; align-items: center; gap: 4px;">
-                <span>⬇️</span> Direct APK Link
-              </button>
-              <button id="btnOpenGitHubReleasesPage" type="button" class="btn btn-ghost btn-xs" style="color: var(--text-muted); text-decoration: underline;">
-                View on GitHub ↗
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-
-    setTimeout(() => {
-      const btnCheck = container.querySelector('#btnTriggerCheckUpdates');
-      const resultsArea = container.querySelector('#updatesResultsArea');
-      const progressCard = container.querySelector('#updateDownloadProgressCard');
-      const progressBar = container.querySelector('#updateProgressBar');
-      const progressPercent = container.querySelector('#updateProgressPercent');
-      const progressSubtitle = container.querySelector('#updateProgressSubtitle');
-      const progressTitle = container.querySelector('#updateProgressTitle');
-      const btnDirectDownload = container.querySelector('#btnDirectDownloadLatestApk');
-      const btnOpenGitHub = container.querySelector('#btnOpenGitHubReleasesPage');
-
-      // Native callbacks from Android Bridge
-      window.onApkDownloadProgress = (percent, downloaded, total) => {
-        if (!progressCard) return;
-        progressCard.style.display = 'block';
-        const p = percent >= 0 ? percent : 50;
-        progressBar.style.width = p + '%';
-        progressPercent.textContent = p + '%';
-        const dMB = (downloaded / (1024 * 1024)).toFixed(1);
-        const tMB = total > 0 ? (total / (1024 * 1024)).toFixed(1) : '?';
-        progressSubtitle.textContent = `Downloaded ${dMB} MB of ${tMB} MB...`;
-      };
-
-      window.onApkInstallerLaunched = () => {
-        if (!progressCard) return;
-        progressBar.style.width = '100%';
-        progressPercent.textContent = '100%';
-        progressTitle.textContent = '🎉 Installer Launched!';
-        progressSubtitle.textContent = 'Please tap "Update" on the Android screen. Your existing data will be preserved!';
-      };
-
-      window.onApkDownloadError = (errMsg) => {
-        if (!progressCard) return;
-        progressTitle.textContent = '⚠️ Download Failed';
-        progressSubtitle.textContent = errMsg || 'Could not complete update download.';
-        progressPercent.textContent = 'Error';
-        progressBar.style.background = '#ef4444';
-      };
-
-      window.onApkInstallPermissionNeeded = () => {
-        if (!progressCard) return;
-        progressTitle.textContent = '⚙️ Permission Required';
-        progressSubtitle.textContent = 'Please enable "Allow from this source" for RestoBill in Android Settings, then tap Update again.';
-      };
-
-      async function runCheck() {
-        if (btnCheck) {
-          btnCheck.disabled = true;
-          btnCheck.innerHTML = '<span>⏳</span> Checking GitHub Releases...';
-        }
-
-        try {
-          const res = await window.api.app.checkForUpdates();
-          if (res && res.error) {
-            resultsArea.innerHTML = `
-              <div style="padding: 14px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); text-align: left;">
-                <div style="font-weight: 700; color: #fca5a5; margin-bottom: 4px;">⚠️ Update Check Failed</div>
-                <div style="font-size: 0.84rem; color: #fecaca; margin-bottom: 12px;">${res.error || res.message}</div>
-                <button id="btnRetryCheck" type="button" class="btn btn-sm btn-outline">Retry</button>
-              </div>
-            `;
-            resultsArea.querySelector('#btnRetryCheck')?.addEventListener('click', runCheck);
-          } else if (res && res.hasUpdate) {
-            resultsArea.innerHTML = `
-              <div style="padding: 16px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); text-align: left;">
-                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
-                  <div>
-                    <div style="font-weight: 700; font-size: 1.05rem; color: #60a5fa;">🚀 New Update Available: ${res.latestVersion || res.tagName}</div>
-                    <div style="font-size: 0.8rem; color: #cbd5e1;">Installed: v${version} &bull; Released: ${res.publishedAt ? new Date(res.publishedAt).toLocaleDateString() : 'Recent'}</div>
-                  </div>
-                  <span style="background: rgba(34, 197, 94, 0.2); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.4); padding: 3px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700;">Update Ready</span>
-                </div>
-
-                ${res.releaseNotes ? `
-                  <div style="margin-bottom: 14px; max-height: 120px; overflow-y: auto; background: rgba(0,0,0,0.25); padding: 10px 12px; border-radius: 6px; font-size: 0.8rem; color: #e2e8f0; line-height: 1.45; white-space: pre-wrap;">${res.releaseNotes}</div>
-                ` : ''}
-
-                <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
-                  <button id="btnInAppUpdateNow" type="button" class="btn btn-success" style="padding: 10px 20px; font-weight: 700; display: inline-flex; align-items: center; gap: 8px;">
-                    <span>⚡</span> Download &amp; Update App Directly
-                  </button>
-                  <button id="btnBrowserDownloadNow" type="button" class="btn btn-outline" style="font-size: 0.85rem;">
-                    Download via Browser
-                  </button>
-                </div>
-              </div>
-            `;
-
-            resultsArea.querySelector('#btnInAppUpdateNow')?.addEventListener('click', () => {
-              progressCard.style.display = 'block';
-              progressBar.style.width = '5%';
-              progressPercent.textContent = '5%';
-              progressTitle.textContent = '📥 Starting Download...';
-              progressSubtitle.textContent = 'Downloading ' + (res.latestVersion || 'latest APK') + '...';
-              window.api.app.installUpdate(res.downloadUrl);
-            });
-
-            resultsArea.querySelector('#btnBrowserDownloadNow')?.addEventListener('click', () => {
-              window.api.app.openExternal(res.downloadUrl);
-            });
-          } else {
-            resultsArea.innerHTML = `
-              <div style="padding: 16px; border-radius: 8px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); text-align: left;">
-                <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
-                  <span style="font-size: 1.4rem;">✅</span>
-                  <div>
-                    <div style="font-weight: 700; color: #6ee7b7; font-size: 0.98rem;">RestoBill POS is Up to Date</div>
-                    <div style="font-size: 0.82rem; color: #a7f3d0;">You are running the latest version (v${version}). No updates needed.</div>
-                  </div>
-                </div>
-                <div style="margin-top: 10px;">
-                  <button id="btnRecheckUpdates" type="button" class="btn btn-sm btn-outline">Check Again</button>
-                </div>
-              </div>
-            `;
-            resultsArea.querySelector('#btnRecheckUpdates')?.addEventListener('click', runCheck);
-          }
-        } catch (e) {
-          resultsArea.innerHTML = `
-            <div style="padding: 14px 16px; border-radius: 8px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.35); text-align: left;">
-              <div style="font-weight: 700; color: #fca5a5; margin-bottom: 4px;">⚠️ Error checking updates</div>
-              <div style="font-size: 0.84rem; color: #fecaca; margin-bottom: 12px;">${e.message}</div>
-              <button id="btnRetryCheck" type="button" class="btn btn-sm btn-outline">Retry</button>
-            </div>
-          `;
-          resultsArea.querySelector('#btnRetryCheck')?.addEventListener('click', runCheck);
-        } finally {
-          if (btnCheck) {
-            btnCheck.disabled = false;
-            btnCheck.innerHTML = '<span>🔄</span> Check for Updates Now';
-          }
-        }
-      }
-
-      btnCheck?.addEventListener('click', runCheck);
-
-      btnDirectDownload?.addEventListener('click', () => {
-        window.api.app.openExternal('https://github.com/rahulastrorock/RestoBillAPK/releases/latest/download/RestoBill-release-latest.apk');
-      });
-
-      btnOpenGitHub?.addEventListener('click', () => {
-        window.api.app.openExternal('https://github.com/rahulastrorock/RestoBillAPK/releases');
-      });
-    }, 50);
-  },
-
   async renderAboutTab(container) {
     let version = '1.0.0';
     let dbPath = 'Local SQLite Database';
@@ -2374,28 +2143,40 @@ window.SettingsUI = {
         </div>
 
         <!-- 1.5 Continuous Deployment & Live Updates Card -->
-        <div class="about-hero-card" style="margin-top: 16px; border: 1px solid rgba(99, 102, 241, 0.4); background: linear-gradient(135deg, rgba(30, 27, 75, 0.5) 0%, rgba(15, 23, 42, 0.7) 100%);">
+        <div class="about-hero-card" style="margin-top: 16px; border: 1px solid rgba(99, 102, 241, 0.45); background: linear-gradient(135deg, rgba(30, 27, 75, 0.6) 0%, rgba(15, 23, 42, 0.8) 100%);">
           <div class="about-hero-header">
             <div class="about-logo-badge" style="background: linear-gradient(135deg, #4f46e5, #06b6d4);">
               <span class="about-logo-letters">🚀</span>
             </div>
             <div class="about-hero-info">
               <div class="about-title-row">
-                <h3 class="about-app-name">Continuous Deployment &amp; Live Updates</h3>
+                <h3 class="about-app-name">Software Updates</h3>
                 <span class="about-version-badge" id="cdCurrentVersionBadge">v${version}</span>
               </div>
-              <p class="about-app-tagline">Seamless in-place updates &bull; Zero configuration loss</p>
+              <p class="about-app-tagline">1-Click In-App Direct Update &bull; Zero Configuration Loss</p>
             </div>
           </div>
 
           <div style="margin: 12px 0 16px; padding: 12px 14px; border-radius: 8px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.25); display: flex; align-items: flex-start; gap: 10px;">
             <span style="font-size: 1.2rem; line-height: 1.2;">🛡️</span>
             <div style="font-size: 0.85rem; color: #d1fae5; line-height: 1.45;">
-              <strong>Zero-Setup In-Place Updates:</strong> Every APK build is permanently signed with a stable cryptographic key. You never have to uninstall the app or re-setup your restaurant, bills, menus, or printers. When you install an updated APK, Android preserves 100% of your data and settings automatically.
+              <strong>Zero Data Loss Guarantee:</strong> All updates install seamlessly over your existing app. Your SQLite database, saved bills, customers, menu items, and paired Bluetooth printers are 100% preserved!
             </div>
           </div>
 
           <div id="updateStatusBox" style="margin-bottom: 12px; display: none;"></div>
+
+          <!-- Live Download Progress Card (Displayed when downloading in-app) -->
+          <div id="aboutUpdateProgressCard" style="display: none; padding: 14px 16px; border-radius: 8px; background: rgba(30, 41, 59, 0.95); border: 1px solid rgba(59, 130, 246, 0.45); margin-bottom: 14px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span id="aboutUpdateProgressTitle" style="font-weight: 700; font-size: 0.9rem; color: #93c5fd;">📥 Downloading Update...</span>
+              <span id="aboutUpdateProgressPercent" style="font-weight: 700; font-size: 0.9rem; color: #60a5fa;">0%</span>
+            </div>
+            <div style="width: 100%; height: 8px; background: rgba(255, 255, 255, 0.12); border-radius: 4px; overflow: hidden; margin-bottom: 8px;">
+              <div id="aboutUpdateProgressBar" style="width: 0%; height: 100%; background: linear-gradient(90deg, #3b82f6, #10b981); transition: width 0.12s ease-out;"></div>
+            </div>
+            <div id="aboutUpdateProgressSubtitle" style="font-size: 0.8rem; color: #94a3b8;">Connecting to server...</div>
+          </div>
 
           <div style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
             <button id="btnCheckAppUpdates" type="button" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 6px;">
@@ -2509,6 +2290,45 @@ window.SettingsUI = {
       const statusBox = container.querySelector('#updateStatusBox');
       const directDownloadBtn = container.querySelector('#btnDirectDownloadUpdate');
       const btnViewAll = container.querySelector('#btnViewAllReleases');
+      const progressCard = container.querySelector('#aboutUpdateProgressCard');
+      const progressBar = container.querySelector('#aboutUpdateProgressBar');
+      const progressPercent = container.querySelector('#aboutUpdateProgressPercent');
+      const progressSubtitle = container.querySelector('#aboutUpdateProgressSubtitle');
+      const progressTitle = container.querySelector('#aboutUpdateProgressTitle');
+
+      // Native callbacks from Android Bridge for live download progress
+      window.onApkDownloadProgress = (percent, downloaded, total) => {
+        if (!progressCard) return;
+        progressCard.style.display = 'block';
+        const p = percent >= 0 ? percent : 50;
+        progressBar.style.width = p + '%';
+        progressPercent.textContent = p + '%';
+        const dMB = (downloaded / (1024 * 1024)).toFixed(1);
+        const tMB = total > 0 ? (total / (1024 * 1024)).toFixed(1) : '?';
+        progressSubtitle.textContent = `Downloaded ${dMB} MB of ${tMB} MB...`;
+      };
+
+      window.onApkInstallerLaunched = () => {
+        if (!progressCard) return;
+        progressBar.style.width = '100%';
+        progressPercent.textContent = '100%';
+        progressTitle.textContent = '🎉 Installer Launched!';
+        progressSubtitle.textContent = 'Please tap "Update" on the Android screen. Your existing data will be preserved!';
+      };
+
+      window.onApkDownloadError = (errMsg) => {
+        if (!progressCard) return;
+        progressTitle.textContent = '⚠️ Download Failed';
+        progressSubtitle.textContent = errMsg || 'Could not complete update download.';
+        progressPercent.textContent = 'Error';
+        progressBar.style.background = '#ef4444';
+      };
+
+      window.onApkInstallPermissionNeeded = () => {
+        if (!progressCard) return;
+        progressTitle.textContent = '⚙️ Permission Required';
+        progressSubtitle.textContent = 'Please enable "Allow from this source" for RestoBill in Android Settings, then tap Update again.';
+      };
 
       if (btnCheck && statusBox) {
         btnCheck.addEventListener('click', async () => {
@@ -2534,14 +2354,33 @@ window.SettingsUI = {
                 <div style="padding: 12px 14px; border-radius: 8px; background: rgba(59, 130, 246, 0.15); border: 1px solid rgba(59, 130, 246, 0.35); font-size: 0.88rem; color: #bfdbfe;">
                   <div style="font-weight: 600; margin-bottom: 4px; color: #60a5fa;">🎉 New Version Available: ${res.latestVersion || res.tagName}</div>
                   <div style="font-size: 0.82rem; margin-bottom: 10px; color: #cbd5e1;">Current: v${version} &bull; Released: ${res.publishedAt ? new Date(res.publishedAt).toLocaleDateString() : 'Recent'}</div>
-                  <button id="btnApplyUpdateNow" type="button" class="btn btn-sm btn-success" style="font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
-                    <span>⚡</span> Install Update Now (Preserves All Data)
-                  </button>
+                  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                    <button id="btnApplyUpdateNow" type="button" class="btn btn-sm btn-success" style="font-weight: 600; display: inline-flex; align-items: center; gap: 6px;">
+                      <span>⚡</span> Download &amp; Update App Directly
+                    </button>
+                    <button id="btnBrowserDownloadNow" type="button" class="btn btn-sm btn-outline" style="font-size: 0.82rem;">
+                      Download via Browser
+                    </button>
+                  </div>
                 </div>
               `;
               const btnApply = statusBox.querySelector('#btnApplyUpdateNow');
               if (btnApply) {
                 btnApply.addEventListener('click', () => {
+                  if (progressCard) {
+                    progressCard.style.display = 'block';
+                    progressBar.style.width = '5%';
+                    progressPercent.textContent = '5%';
+                    progressTitle.textContent = '📥 Starting Download...';
+                    progressSubtitle.textContent = 'Downloading ' + (res.latestVersion || 'latest APK') + '...';
+                  }
+                  window.api.app.installUpdate(res.downloadUrl);
+                });
+              }
+
+              const btnBrowser = statusBox.querySelector('#btnBrowserDownloadNow');
+              if (btnBrowser) {
+                btnBrowser.addEventListener('click', () => {
                   window.api.app.openExternal(res.downloadUrl);
                 });
               }
