@@ -590,7 +590,7 @@
       ['पराठा /रोटी/नान', 'बनारसी पूड़ी देसी घी', '181', 20, '996331', 5, 1, ''],
 
       // ─── शेर एै पंजाब के विशेष (10 items) ─────────────────────────
-      ['शेर एै पंजाब के विशेष', 'गुलाब जामुन', '184', 20, '996331', 5, 1, 'मीठा'],
+      ['शेर एै पंजाब के विशेष', 'गुलाब जामुन', '193', 20, '996331', 5, 1, 'मीठा'],
       ['शेर एै पंजाब के विशेष', 'चाय', '185', 10, '996331', 5, 1, 'गर्मा-गर्म'],
       ['शेर एै पंजाब के विशेष', 'दही', '186', 35, '996331', 5, 1, 'ताजा दही'],
       ['शेर एै पंजाब के विशेष', 'दूध', '187', 25, '996331', 5, 1, ''],
@@ -670,6 +670,19 @@
       db = new DatabaseWrapper(rawDb);
       runMigrations(db);
       seedData(db);
+
+      // Lock in local device settings so this device's roles (e.g. auto backup vs auto restore) are preserved
+      try {
+        for (const k of DEVICE_SPECIFIC_SETTINGS) {
+          if (localStorage.getItem('local_device_setting_' + k) === null) {
+            const r = db.prepare("SELECT value FROM settings WHERE key = ?").get(k);
+            if (r && r.value !== undefined) {
+              localStorage.setItem('local_device_setting_' + k, String(r.value));
+            }
+          }
+        }
+      } catch (e) {}
+
       triggerSaveDatabase();
       setupAutoBackupScheduler();
       return db;
@@ -1232,12 +1245,35 @@
   }
 
   // ─── Automatic Cloud Backup Scheduler ────────────────────────────
+    // ─── Device-Specific Settings (Protected from Remote Overwrite on Cloud Restore) ──
+  const DEVICE_SPECIFIC_SETTINGS = [
+    'backup_enabled',
+    'backup_frequency',
+    'backup_time',
+    'auto_restore_enabled',
+    'auto_restore_frequency',
+    'printer_device',
+    'printer_width',
+    'silent_print',
+    'print_copies',
+    'auto_print_on_save',
+    'pos_thermal_preview',
+    'biometric_enabled',
+    'last_backup',
+    'last_auto_restore',
+    'last_restored_backup_id',
+    'last_restored_backup_name'
+  ];
+
   let autoBackupTimer = null;
   async function runScheduledBackupCheck() {
     try {
       if (!db) return;
-      const enabledRow = db.prepare("SELECT value FROM settings WHERE key = 'backup_enabled'").get();
-      if (!enabledRow || enabledRow.value !== '1') return;
+      const localBackupVal = localStorage.getItem('local_device_setting_backup_enabled');
+      const backupEnabled = (localBackupVal !== null && localBackupVal !== undefined)
+        ? localBackupVal
+        : (db.prepare("SELECT value FROM settings WHERE key = 'backup_enabled'").get()?.value || '0');
+      if (backupEnabled !== '1') return;
 
       const tokenObj = getStoredGdriveTokenObj();
       if (!tokenObj) return;
@@ -1298,8 +1334,11 @@
     try {
       if (!db) return { success: false, reason: 'Database not initialized' };
 
+      const localRestoreVal = localStorage.getItem('local_device_setting_auto_restore_enabled');
       const enabledRow = db.prepare("SELECT value FROM settings WHERE key = 'auto_restore_enabled'").get();
-      const isEnabled = enabledRow && enabledRow.value === '1';
+      const isEnabled = (localRestoreVal !== null && localRestoreVal !== undefined)
+        ? (localRestoreVal === '1')
+        : (enabledRow && enabledRow.value === '1');
 
       if (!forceNow && !isEnabled) {
         return { success: false, reason: 'Auto-restore is disabled (manual only)' };
@@ -1585,14 +1624,39 @@
       addItem: apiCall(async (data) => {
         const { category_id, name, short_code = '', price, hsn_sac = '996331', gst_rate = 5.0, is_veg = 1, description = '' } = data;
         if (!name || !name.trim()) throw new Error('Item name is required');
+
+        const cleanCode = (short_code || '').trim().toUpperCase();
+        if (cleanCode) {
+          const existing = db.prepare('SELECT id, name FROM menu_items WHERE active = 1 AND UPPER(TRIM(short_code)) = ?').get(cleanCode);
+          if (existing) {
+            throw new Error(`Item code "${cleanCode}" is already assigned to "${existing.name}". Please use a unique code.`);
+          }
+        }
+
+        const parsedGst = (gst_rate !== undefined && gst_rate !== null && gst_rate !== '') ? parseFloat(gst_rate) : 5.0;
         const res = db.prepare(`
           INSERT INTO menu_items (category_id, name, short_code, price, hsn_sac, gst_rate, is_veg, description)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(category_id, name.trim(), short_code.trim().toUpperCase(), parseFloat(price), hsn_sac, parseFloat(gst_rate), is_veg ? 1 : 0, description);
+        `).run(category_id, name.trim(), cleanCode, parseFloat(price), hsn_sac, parsedGst, is_veg ? 1 : 0, description);
         return db.prepare('SELECT * FROM menu_items WHERE id = ?').get(res.lastInsertRowid);
       }),
 
       updateItem: apiCall(async (id, data) => {
+        if (data.short_code !== undefined && data.short_code !== null) {
+          const cleanCode = String(data.short_code).trim().toUpperCase();
+          if (cleanCode) {
+            const existing = db.prepare('SELECT id, name FROM menu_items WHERE active = 1 AND id != ? AND UPPER(TRIM(short_code)) = ?').get(id, cleanCode);
+            if (existing) {
+              throw new Error(`Item code "${cleanCode}" is already assigned to "${existing.name}". Please use a unique code.`);
+            }
+          }
+          data.short_code = cleanCode;
+        }
+
+        if (data.gst_rate !== undefined && data.gst_rate !== null && data.gst_rate !== '') {
+          data.gst_rate = parseFloat(data.gst_rate);
+        }
+
         const fields = ['category_id', 'name', 'short_code', 'price', 'hsn_sac', 'gst_rate', 'is_veg', 'description'];
         const updates = [];
         const values = [];
@@ -2253,22 +2317,49 @@
         const rows = db.prepare('SELECT key, value FROM settings').all();
         const res = {};
         for (const r of rows) res[r.key] = r.value;
+        // Overlay local device settings so this device's roles (e.g. auto-backup or auto-restore) are never overridden
+        for (const k of DEVICE_SPECIFIC_SETTINGS) {
+          const localVal = localStorage.getItem('local_device_setting_' + k);
+          if (localVal !== null && localVal !== undefined) {
+            res[k] = localVal;
+          }
+        }
         return res;
       }),
-      get: apiCall(async (key) => db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value || null),
+      get: apiCall(async (key) => {
+        if (DEVICE_SPECIFIC_SETTINGS.includes(key)) {
+          const localVal = localStorage.getItem('local_device_setting_' + key);
+          if (localVal !== null && localVal !== undefined) return localVal;
+        }
+        return db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value || null;
+      }),
       update: apiCall(async (key, value) => {
+        const strVal = String(value);
+        if (DEVICE_SPECIFIC_SETTINGS.includes(key)) {
+          localStorage.setItem('local_device_setting_' + key, strVal);
+        }
         db.prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now', 'localtime')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at")
-          .run(key, String(value));
+          .run(key, strVal);
         return true;
       }),
       updateBulk: apiCall(async (settings) => {
         const upsert = db.prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now', 'localtime')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at");
         for (const [k, v] of Object.entries(settings)) {
-          upsert.run(k, String(v));
+          const strVal = String(v);
+          if (DEVICE_SPECIFIC_SETTINGS.includes(k)) {
+            localStorage.setItem('local_device_setting_' + k, strVal);
+          }
+          upsert.run(k, strVal);
         }
         const rows = db.prepare('SELECT key, value FROM settings').all();
         const res = {};
         for (const r of rows) res[r.key] = r.value;
+        for (const k of DEVICE_SPECIFIC_SETTINGS) {
+          const localVal = localStorage.getItem('local_device_setting_' + k);
+          if (localVal !== null && localVal !== undefined) {
+            res[k] = localVal;
+          }
+        }
         return res;
       }),
     },
@@ -3004,17 +3095,45 @@
           throw new Error('SQLite engine is not ready');
         }
 
-        // Initialize new raw database from imported binary
+        // 1. Snapshot current device's local hardware & sync settings before replacing database
+        const localSnapshot = {};
+        for (const k of DEVICE_SPECIFIC_SETTINGS) {
+          const localVal = localStorage.getItem('local_device_setting_' + k);
+          if (localVal !== null && localVal !== undefined) {
+            localSnapshot[k] = localVal;
+          } else {
+            try {
+              const row = db.prepare("SELECT value FROM settings WHERE key = ?").get(k);
+              if (row && row.value !== undefined) {
+                localSnapshot[k] = row.value;
+                localStorage.setItem('local_device_setting_' + k, String(row.value));
+              }
+            } catch (e) {}
+          }
+        }
+
+        // 2. Initialize new raw database from imported binary
         const newRawDb = new sqlEngine.Database(uint8);
         db.raw = newRawDb;
 
-        // Run migrations if needed to ensure compatibility
+        // 3. Run migrations if needed to ensure compatibility
         runMigrations(db);
 
-        // Immediately persist to IndexedDB
+        // 4. Re-inject this device's local settings so cloud restore never flips device roles
+        try {
+          const upsert = db.prepare("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, datetime('now', 'localtime')) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at");
+          for (const [k, v] of Object.entries(localSnapshot)) {
+            upsert.run(k, String(v));
+          }
+        } catch (reinjectErr) {
+          console.warn('[RestoBill] Error preserving local device settings in imported DB:', reinjectErr);
+        }
+
+        // 5. Persist the updated database containing business data + local settings into IndexedDB
+        const finalUint8 = db.raw.export();
         const idb = await openIdb();
         const tx = idb.transaction(STORE_NAME, 'readwrite');
-        tx.objectStore(STORE_NAME).put(uint8, DB_KEY);
+        tx.objectStore(STORE_NAME).put(finalUint8, DB_KEY);
 
         return { success: true };
       }),

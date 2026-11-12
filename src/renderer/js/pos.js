@@ -571,13 +571,20 @@ window.POS = {
       this.cart[existingIndex].quantity += 1;
     } else {
       const itemPrice = parseFloat(item.price);
+      const defaultGstRate = (window.App?.settings?.default_gst_rate !== undefined && window.App.settings.default_gst_rate !== '')
+        ? parseFloat(window.App.settings.default_gst_rate)
+        : 5;
+      const itemGst = (item.gst_rate !== undefined && item.gst_rate !== null && item.gst_rate !== '')
+        ? parseFloat(item.gst_rate)
+        : defaultGstRate;
+
       this.cart.push({
         menu_item_id: item.id,
         name: item.name,
         original_price: itemPrice,
         price: itemPrice,
         is_custom_price: false,
-        gst_rate: parseFloat(item.gst_rate || 5),
+        gst_rate: itemGst,
         is_veg: item.is_veg,
         quantity: 1,
         notes: ''
@@ -796,17 +803,23 @@ window.POS = {
       }
     }
 
-    // Dynamic CGST / SGST rate percentage display
-    let displayRate = defaultGstRate;
-    if (this.cart.length > 0 && this.cart[0].gst_rate !== undefined && this.cart[0].gst_rate !== null && this.cart[0].gst_rate !== '') {
-      displayRate = parseFloat(this.cart[0].gst_rate);
+    // Dynamic CGST / SGST rate percentage display based on cart items' actual GST rates
+    const uniqueRates = [...new Set(this.cart.map(i => {
+      return (i.gst_rate !== undefined && i.gst_rate !== null && i.gst_rate !== '')
+        ? parseFloat(i.gst_rate)
+        : defaultGstRate;
+    }))];
+
+    let rateLabelSuffix = '';
+    if (uniqueRates.length === 1) {
+      const halfRate = uniqueRates[0] / 2;
+      const halfRateStr = halfRate % 1 === 0 ? halfRate.toString() : halfRate.toFixed(1).replace(/\.0$/, '');
+      rateLabelSuffix = ` (${halfRateStr}%)`;
     }
-    const halfRate = displayRate / 2;
-    const halfRateStr = halfRate % 1 === 0 ? halfRate.toString() : halfRate.toFixed(1).replace(/\.0$/, '');
     const cgstLabelEl = document.getElementById('pos-cgst-label');
     const sgstLabelEl = document.getElementById('pos-sgst-label');
-    if (cgstLabelEl) cgstLabelEl.textContent = `CGST (${halfRateStr}%)`;
-    if (sgstLabelEl) sgstLabelEl.textContent = `SGST (${halfRateStr}%)`;
+    if (cgstLabelEl) cgstLabelEl.textContent = `CGST${rateLabelSuffix}`;
+    if (sgstLabelEl) sgstLabelEl.textContent = `SGST${rateLabelSuffix}`;
 
     if (cgstEl) cgstEl.textContent = window.App.formatCurrency(cgst);
     if (sgstEl) sgstEl.textContent = window.App.formatCurrency(sgst);
@@ -1166,7 +1179,7 @@ window.POS = {
       menu_item_id: i.menu_item_id || i.id,
       name: i.name,
       price: parseFloat(i.price),
-      gst_rate: parseFloat(i.gst_rate !== undefined ? i.gst_rate : 5),
+      gst_rate: (i.gst_rate !== undefined && i.gst_rate !== null && i.gst_rate !== '') ? parseFloat(i.gst_rate) : 5,
       is_veg: i.is_veg !== undefined ? i.is_veg : 1,
       quantity: parseFloat(i.quantity) || 1,
       notes: i.notes || ''

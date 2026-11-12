@@ -871,7 +871,7 @@ window.OrdersUI = {
         for (const item of editItems) {
           const lineTotal = item.price * item.quantity;
           subtotal += lineTotal;
-          const rate = item.gst_rate || 5;
+          const rate = (item.gst_rate !== undefined && item.gst_rate !== null && item.gst_rate !== '') ? parseFloat(item.gst_rate) : 5;
           if (isInclusive) {
             const taxable = (lineTotal * 100) / (100 + rate);
             totalTaxable += taxable;
@@ -1011,7 +1011,7 @@ window.OrdersUI = {
       };
 
       const menuOptionsHtml = menuItems.map(m => `
-        <option value="${m.id}" data-price="${m.price}" data-gst="${m.gst_rate || 5}" data-name="${window.App.escapeHtml(m.name)}">
+        <option value="${m.id}" data-price="${m.price}" data-gst="${(m.gst_rate !== undefined && m.gst_rate !== null && m.gst_rate !== '') ? m.gst_rate : 5}" data-name="${window.App.escapeHtml(m.name)}">
           ${window.App.escapeHtml(m.name)} (${window.App.formatCurrency(m.price)})
         </option>
       `).join('');
@@ -1259,7 +1259,8 @@ window.OrdersUI = {
           const menuItemId = parseInt(selectedOption.value, 10);
           const name = selectedOption.getAttribute('data-name');
           const price = parseFloat(selectedOption.getAttribute('data-price')) || 0;
-          const gstRate = parseFloat(selectedOption.getAttribute('data-gst')) || 5;
+          const rawGst = selectedOption.getAttribute('data-gst');
+          const gstRate = (rawGst !== undefined && rawGst !== null && rawGst !== '') ? parseFloat(rawGst) : 5;
           const qty = parseFloat(itemQtyInput.value) || 1;
 
           const existingIdx = editItems.findIndex(i => (i.menu_item_id && i.menu_item_id === menuItemId) || (i.name === name));

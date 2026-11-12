@@ -442,7 +442,8 @@ window.MenuUI = {
             const code = document.getElementById('modal-item-code')?.value.trim();
             const categoryId = document.getElementById('modal-item-category')?.value;
             const price = parseFloat(document.getElementById('modal-item-price')?.value || 0);
-            const gstRate = parseFloat(document.getElementById('modal-item-gst')?.value || 5);
+            const rawGst = document.getElementById('modal-item-gst')?.value;
+            const gstRate = (rawGst !== undefined && rawGst !== null && rawGst !== '') ? parseFloat(rawGst) : 5;
             const hsn = document.getElementById('modal-item-hsn')?.value.trim() || '996331';
             const isVeg = document.querySelector('input[name="modal_is_veg"]:checked')?.value === '1';
 
@@ -453,6 +454,15 @@ window.MenuUI = {
             if (price <= 0) {
               window.App.showToast('Please enter a valid price', 'warning');
               return;
+            }
+
+            if (code) {
+              const cleanCode = code.toUpperCase();
+              const duplicate = (this.items || []).find(i => (i.short_code || '').trim().toUpperCase() === cleanCode);
+              if (duplicate) {
+                window.App.showToast(`Item code "${cleanCode}" is already assigned to "${duplicate.name}". Please choose another code.`, 'warning', 4500);
+                return;
+              }
             }
 
             try {
@@ -551,13 +561,23 @@ window.MenuUI = {
             const code = document.getElementById('modal-item-code')?.value.trim();
             const categoryId = document.getElementById('modal-item-category')?.value;
             const price = parseFloat(document.getElementById('modal-item-price')?.value || 0);
-            const gstRate = parseFloat(document.getElementById('modal-item-gst')?.value || 5);
+            const rawGst = document.getElementById('modal-item-gst')?.value;
+            const gstRate = (rawGst !== undefined && rawGst !== null && rawGst !== '') ? parseFloat(rawGst) : 5;
             const hsn = document.getElementById('modal-item-hsn')?.value.trim() || '996331';
             const isVeg = document.querySelector('input[name="modal_is_veg"]:checked')?.value === '1';
 
             if (!name) {
               window.App.showToast('Item name is required', 'warning');
               return;
+            }
+
+            if (code) {
+              const cleanCode = code.toUpperCase();
+              const duplicate = (this.items || []).find(i => i.id !== item.id && (i.short_code || '').trim().toUpperCase() === cleanCode);
+              if (duplicate) {
+                window.App.showToast(`Item code "${cleanCode}" is already assigned to "${duplicate.name}". Please choose another code.`, 'warning', 4500);
+                return;
+              }
             }
 
             try {
