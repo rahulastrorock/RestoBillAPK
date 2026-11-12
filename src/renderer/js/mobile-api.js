@@ -3133,6 +3133,18 @@
           };
         }
       }),
+      installUpdate: apiCall(async (downloadUrl) => {
+        try {
+          if (window.AndroidAppBridge && typeof window.AndroidAppBridge.downloadAndInstallApk === 'function') {
+            return window.AndroidAppBridge.downloadAndInstallApk(downloadUrl);
+          }
+        } catch (e) {
+          console.warn('Native downloadAndInstallApk error:', e);
+        }
+        // Fallback: Open in external browser
+        window.open(downloadUrl, '_blank');
+        return true;
+      }),
       exportData: apiCall(async (type, data) => {
         // Prepend UTF-8 BOM so Microsoft Excel automatically recognizes encoding and displays symbols (like ₹) correctly
         const bom = '\uFEFF';

@@ -72,6 +72,148 @@ public class MainActivity extends BridgeActivity {
             }
 
             @JavascriptInterface
+            public boolean downloadAndInstallApk(final String downloadUrl) {
+                new Thread(new Runnable() {
+                    @Override
+                    public void run() {
+                        java.io.InputStream in = null;
+                        java.io.FileOutputStream out = null;
+                        try {
+                            // Check permission for installing unknown packages on Android 8.0+ (Oreo)
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                if (!getPackageManager().canRequestPackageInstalls()) {
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            try {
+                                                android.content.Intent permIntent = new android.content.Intent(
+                                                    android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                                    android.net.Uri.parse("package:" + getPackageName())
+                                                );
+                                                permIntent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                                                startActivity(permIntent);
+                                            } catch (Exception ex) {
+                                                android.util.Log.e("MainActivity", "Failed to open install permissions settings", ex);
+                                            }
+                                        }
+                                    });
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            getBridge().getWebView().evaluateJavascript(
+                                                "window.onApkInstallPermissionNeeded && window.onApkInstallPermissionNeeded();", null
+                                            );
+                                        }
+                                    });
+                                    return;
+                                }
+                            }
+
+                            java.io.File downloadDir = new java.io.File(getCacheDir(), "updates");
+                            if (!downloadDir.exists()) downloadDir.mkdirs();
+                            final java.io.File apkFile = new java.io.File(downloadDir, "RestoBill-update.apk");
+                            if (apkFile.exists()) apkFile.delete();
+
+                            java.net.URL targetUrl = new java.net.URL(downloadUrl);
+                            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) targetUrl.openConnection();
+                            conn.setInstanceFollowRedirects(true);
+                            conn.setConnectTimeout(25000);
+                            conn.setReadTimeout(45000);
+                            conn.connect();
+
+                            // Follow HTTP redirects if present
+                            int status = conn.getResponseCode();
+                            if (status == java.net.HttpURLConnection.HTTP_MOVED_TEMP
+                                || status == java.net.HttpURLConnection.HTTP_MOVED_PERM
+                                || status == 307 || status == 308) {
+                                String newLocation = conn.getHeaderField("Location");
+                                conn.disconnect();
+                                targetUrl = new java.net.URL(newLocation);
+                                conn = (java.net.HttpURLConnection) targetUrl.openConnection();
+                                conn.setConnectTimeout(25000);
+                                conn.setReadTimeout(45000);
+                                conn.connect();
+                            }
+
+                            final int totalBytes = conn.getContentLength();
+                            in = conn.getInputStream();
+                            out = new java.io.FileOutputStream(apkFile);
+
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            int downloaded = 0;
+                            long lastProgressUpdate = 0;
+
+                            while ((bytesRead = in.read(buffer)) != -1) {
+                                out.write(buffer, 0, bytesRead);
+                                downloaded += bytesRead;
+
+                                long now = System.currentTimeMillis();
+                                if (now - lastProgressUpdate > 120 || downloaded == totalBytes) {
+                                    lastProgressUpdate = now;
+                                    final int d = downloaded;
+                                    final int t = totalBytes;
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            int percent = (t > 0) ? (int)((d * 100L) / t) : -1;
+                                            getBridge().getWebView().evaluateJavascript(
+                                                "window.onApkDownloadProgress && window.onApkDownloadProgress(" + percent + ", " + d + ", " + t + ");", null
+                                            );
+                                        }
+                                    });
+                                }
+                            }
+                            out.flush();
+
+                            // Trigger Android Package Installer
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        android.net.Uri apkUri = androidx.core.content.FileProvider.getUriForFile(
+                                            MainActivity.this,
+                                            getPackageName() + ".fileprovider",
+                                            apkFile
+                                        );
+
+                                        android.content.Intent installIntent = new android.content.Intent(android.content.Intent.ACTION_VIEW);
+                                        installIntent.setDataAndType(apkUri, "application/vnd.android.package-archive");
+                                        installIntent.addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION | android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                                        startActivity(installIntent);
+
+                                        getBridge().getWebView().evaluateJavascript(
+                                            "window.onApkInstallerLaunched && window.onApkInstallerLaunched();", null
+                                        );
+                                    } catch (Exception ex) {
+                                        android.util.Log.e("MainActivity", "Failed to launch package installer", ex);
+                                        getBridge().getWebView().evaluateJavascript(
+                                            "window.onApkDownloadError && window.onApkDownloadError(" + JSONObject.quote("Failed to launch package installer: " + ex.getMessage()) + ");", null
+                                        );
+                                    }
+                                }
+                            });
+
+                        } catch (final Exception e) {
+                            android.util.Log.e("MainActivity", "APK download error", e);
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    getBridge().getWebView().evaluateJavascript(
+                                        "window.onApkDownloadError && window.onApkDownloadError(" + JSONObject.quote(e.getMessage() != null ? e.getMessage() : "Download error") + ");", null
+                                    );
+                                }
+                            });
+                        } finally {
+                            try { if (in != null) in.close(); } catch (Exception ignored) {}
+                            try { if (out != null) out.close(); } catch (Exception ignored) {}
+                        }
+                    }
+                }).start();
+                return true;
+            }
+
+            @JavascriptInterface
             public boolean openWhatsApp(final String rawPhone, final String text) {
                 runOnUiThread(new Runnable() {
                     @Override
