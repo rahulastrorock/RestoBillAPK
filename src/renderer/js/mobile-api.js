@@ -3052,7 +3052,7 @@
         window.open(url, '_blank');
         return true;
       }),
-      checkForUpdates: apiCall(async () => {
+      checkForUpdates: async () => {
         try {
           let currentVersion = '1.0.0';
           let currentBuild = 1000;
@@ -3060,7 +3060,7 @@
             if (window.Capacitor?.Plugins?.App?.getInfo) {
               const info = await window.Capacitor.Plugins.App.getInfo();
               if (info) {
-                currentVersion = info.version || '1.0.0';
+                currentVersion = (info.version || '1.0.0').trim();
                 currentBuild = parseInt(info.build || '1000', 10);
               }
             }
@@ -3070,11 +3070,15 @@
           const apiUrl = `https://api.github.com/repos/${repo}/releases/latest`;
           const resp = await fetch(apiUrl, { cache: 'no-store' });
           if (!resp.ok) {
-            return {
+            const errResult = {
+              success: false,
               hasUpdate: false,
               checked: false,
+              error: 'Could not connect to GitHub Releases. HTTP ' + resp.status,
               message: 'Could not connect to GitHub Releases. Please check internet connection.'
             };
+            errResult.data = errResult;
+            return errResult;
           }
 
           const release = await resp.json();
@@ -3113,7 +3117,8 @@
             }
           }
 
-          return {
+          const payload = {
+            success: true,
             hasUpdate,
             checked: true,
             currentVersion,
@@ -3124,15 +3129,21 @@
             publishedAt: release.published_at,
             releaseNotes: release.body || ''
           };
+          payload.data = payload;
+          return payload;
         } catch (err) {
           console.warn('Update check failed:', err);
-          return {
+          const errPayload = {
+            success: false,
             hasUpdate: false,
             checked: false,
+            error: err.message,
             message: err.message || 'Update check failed.'
           };
+          errPayload.data = errPayload;
+          return errPayload;
         }
-      }),
+      },
       installUpdate: apiCall(async (downloadUrl) => {
         try {
           if (window.AndroidAppBridge && typeof window.AndroidAppBridge.downloadAndInstallApk === 'function') {

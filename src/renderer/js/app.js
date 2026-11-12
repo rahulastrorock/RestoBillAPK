@@ -61,7 +61,8 @@ window.App = {
   async checkAutomaticUpdates() {
     try {
       if (window.api?.app?.checkForUpdates) {
-        const res = await window.api.app.checkForUpdates();
+        const rawRes = await window.api.app.checkForUpdates();
+        const res = (rawRes && rawRes.data && typeof rawRes.data === 'object' && rawRes.data.hasUpdate !== undefined) ? rawRes.data : (rawRes || {});
         if (res && res.hasUpdate) {
           if (document.getElementById('app-update-notification-bar')) return;
 

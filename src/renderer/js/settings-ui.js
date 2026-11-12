@@ -2342,8 +2342,9 @@ window.SettingsUI = {
           `;
 
           try {
-            const res = await window.api.app.checkForUpdates();
-            if (res && res.error) {
+            const rawRes = await window.api.app.checkForUpdates();
+            const res = (rawRes && rawRes.data && typeof rawRes.data === 'object' && rawRes.data.hasUpdate !== undefined) ? rawRes.data : (rawRes || {});
+            if (res && res.error && !res.hasUpdate) {
               statusBox.innerHTML = `
                 <div style="padding: 10px 12px; border-radius: 6px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); font-size: 0.85rem; color: #fca5a5;">
                   ⚠️ ${res.error || res.message}
